@@ -32,7 +32,7 @@ extern "C"
     void binary2hex(uint8_t *buf, int len, char *ascii);
 
     /* converts an ascii to hex */
-    void hex2binary(char *hex, int len, uint8_t*buf);
+    void hex2binary(char *hex, int len, uint8_t *buf);
 #ifdef __cplusplus
 }
 #endif

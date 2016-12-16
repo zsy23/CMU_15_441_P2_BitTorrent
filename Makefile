@@ -1,9 +1,9 @@
 # Some variables
 CC 		= gcc
-CFLAGS		= -g -Wall -DDEBUG
+CFLAGS		= -g -Wall -Werror -DDEBUG
 LDFLAGS		= -lm
 TESTDEFS	= -DTESTING			# comment this out to disable debugging code
-OBJS		= peer.o bt_parse.o spiffy.o debug.o input_buffer.o chunk.o sha.o
+OBJS		= peer.o bt_parse.o spiffy.o debug.o input_buffer.o chunk_helper.o packet.o super_fast_hash.o
 MK_CHUNK_OBJS   = make_chunks.o chunk.o sha.o
 
 BINS            = peer make-chunks
@@ -31,8 +31,6 @@ make-chunks: $(MK_CHUNK_OBJS)
 
 clean:
 	rm -f *.o $(BINS) $(TESTBINS)
-
-bt_parse.c: bt_parse.h
 
 # The debugging utility code
 

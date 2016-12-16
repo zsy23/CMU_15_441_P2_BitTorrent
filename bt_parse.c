@@ -110,6 +110,8 @@ void bt_parse_command_line(bt_config_t *config)
         }
     }
 
+    bt_parse_share_file(config);
+
     bt_parse_peer_list(config);
 
     if (config->identity == 0)
@@ -129,6 +131,28 @@ void bt_parse_command_line(bt_config_t *config)
     assert(strlen(config->has_chunk_file) != 0);
 
     optind = old_optind;
+}
+
+void bt_parse_share_file(bt_config_t *config)
+{
+    FILE *f;
+    char line[BT_FILENAME_LEN];
+    int pos0, pos1;
+
+    assert(config != NULL);
+
+    f = fopen(config->chunk_file, "r");
+    assert(f != NULL);
+
+    fgets(line, BT_FILENAME_LEN, f);
+    pos0 = strchr(line, ':') - line + 1;
+    for( ; line[pos0] != 0 && line[pos0] == ' '; ++pos0);
+    assert(line[pos0] != 0);
+    for(pos1 = pos0; line[pos1] != 0 && line[pos1] != ' '; ++pos1);
+    strncpy(config->share_file, line + pos0, pos1 - pos0);
+    config->share_file[pos1 - pos0] = 0;
+
+    fclose(f);
 }
 
 void bt_parse_peer_list(bt_config_t *config)
@@ -163,6 +187,8 @@ void bt_parse_peer_list(bt_config_t *config)
         node->next = config->peers;
         config->peers = node;
     }
+
+    fclose(f);
 }
 
 void bt_dump_config(bt_config_t *config)

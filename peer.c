@@ -20,6 +20,8 @@
 #include "spiffy.h"
 #include "bt_parse.h"
 #include "input_buffer.h"
+#include "chunk_helper.h"
+#include "packet.h"
 
 void peer_run(bt_config_t *config);
 
@@ -43,11 +45,17 @@ int main(int argc, char **argv)
     if (debug & DEBUG_INIT)
         bt_dump_config(&config);
 #endif
+
+    // check if has_chunk consistent with master_chunk
+    if(check_has_chunk(config.has_chunk_file, config.chunk_file) != 0)
+    {
+        DPRINTF(DEBUG_INIT, "has_chunk not consistent with master_chunk\n");
+        exit(-1);
+    }
   
     peer_run(&config);
     return 0;
 }
-
 
 void process_inbound_udp(int sock)
 {
@@ -66,29 +74,35 @@ void process_inbound_udp(int sock)
 	       buf);
 }
 
-void process_get(char *chunkfile, char *outputfile)
+void process_get(char *chunkfile, bt_config_t *config)
 {
-    printf("PROCESS GET SKELETON CODE CALLED.  Fill me in!  (%s, %s)\n", 
-            chunkfile, outputfile);
+//    printf("PROCESS GET SKELETON CODE CALLED.  Fill me in!  (%s, %s)\n", 
+//            chunkfile, outputfile);
+ 
 }
 
 void handle_user_input(char *line, void *cbdata)
 {
     char chunkf[128], outf[128];
+    bt_config_t *config;
 
     bzero(chunkf, sizeof(chunkf));
     bzero(outf, sizeof(outf));
+    config = (bt_config_t *)cbdata;
 
     if (sscanf(line, "GET %120s %120s", chunkf, outf))
         if (strlen(outf) > 0)
-            process_get(chunkf, outf);
+        {
+            strcpy(config->output_file, outf);
+            process_get(chunkf, config);
+        }
 }
 
 void peer_run(bt_config_t *config)
 {
-    int sock;
+    int sock, nready;
     struct sockaddr_in myaddr;
-    fd_set readfds;
+    fd_set allset, rset;
     struct user_iobuf *userbuf;
   
     if ((userbuf = create_userbuf()) == NULL)
@@ -115,21 +129,24 @@ void peer_run(bt_config_t *config)
     }
   
     spiffy_init(config->identity, (struct sockaddr *)&myaddr, sizeof(myaddr));
+
+    FD_ZERO(&allset);
+    FD_SET(STDIN_FILENO, &allset);
+    FD_SET(sock, &allset);
   
     while (1)
     {
-        int nfds;
-        FD_SET(STDIN_FILENO, &readfds);
-        FD_SET(sock, &readfds);
+        rset = allset;
     
-        nfds = select(sock+1, &readfds, NULL, NULL, NULL);
+        nready = select(sock + 1, &rset, NULL, NULL, NULL);
     
-        if (nfds > 0)
-            if (FD_ISSET(sock, &readfds))
+        if (nready > 0)
+        {
+            if (FD_ISSET(sock, &rset))
 	            process_inbound_udp(sock);
       
-        if (FD_ISSET(STDIN_FILENO, &readfds))
-            process_user_input(STDIN_FILENO, userbuf, handle_user_input, 
-                    "Currently unused");
+            if (FD_ISSET(STDIN_FILENO, &rset))
+                process_user_input(STDIN_FILENO, userbuf, handle_user_input, config);
+        }
     }
 }

@@ -126,7 +126,7 @@ int spiffy_init (long lNodeID, const struct sockaddr *addr, socklen_t addrlen)
 	glSrcAddr = ((struct sockaddr_in *)addr)->sin_addr.s_addr;
 	gsSrcPort = ((struct sockaddr_in *)addr)->sin_port;
 
-	fprintf(stderr, "Spiffy local stuff:  %08x:%d\n", 
+	fprintf(stderr, "Spiffy local stuff:  %08lx:%d\n", 
             glSrcAddr, ntohs(gsSrcPort));
 	fprintf(stderr, "Spiffy setup complete.  %s:%d\nDelete this line after testing.\n", 
             inet_ntoa(gsSpiffyRouter.sin_addr), ntohs(gsSpiffyRouter.sin_port));

@@ -30,6 +30,7 @@ struct bt_config_s {
     char  has_chunk_file[BT_FILENAME_LEN];
     char  output_file[BT_FILENAME_LEN];
     char  peer_list_file[BT_FILENAME_LEN];
+    char  share_file[BT_FILENAME_LEN];
     int   max_conn;
     short identity;
     unsigned short myport;
@@ -44,6 +45,7 @@ typedef struct bt_config_s bt_config_t;
 
 void bt_init(bt_config_t *c, int argc, char **argv);
 void bt_parse_command_line(bt_config_t *c);
+void bt_parse_share_file(bt_config_t *c);
 void bt_parse_peer_list(bt_config_t *c);
 void bt_dump_config(bt_config_t *c);
 bt_peer_t *bt_peer_info(const bt_config_t *c, int peer_id);
