@@ -41,10 +41,10 @@
 #include <string.h>
 #include "sha.h"
 
-#ifndef lint
-static const char rcsid[] =
-	"$Id: sha.c,v 1.1 2005/03/25 21:30:26 ddash Exp $";
-#endif /* !lint */
+//#ifndef lint
+//static const char rcsid[] =
+//	"$Id: sha.c,v 1.1 2005/03/25 21:30:26 ddash Exp $";
+//#endif /* !lint */
 
 #define ROTL(x, n) (((x) << (n)) | ((x) >> (32 - (n))))
 #define ROTR(x, n) (((x) >> (n)) | ((x) << (32 - (n))))

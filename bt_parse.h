@@ -28,6 +28,7 @@ typedef struct bt_peer_s {
 struct bt_config_s {
     char  chunk_file[BT_FILENAME_LEN];
     char  has_chunk_file[BT_FILENAME_LEN];
+    char  get_chunk_file[BT_FILENAME_LEN];
     char  output_file[BT_FILENAME_LEN];
     char  peer_list_file[BT_FILENAME_LEN];
     char  share_file[BT_FILENAME_LEN];
@@ -38,6 +39,7 @@ struct bt_config_s {
     int argc; 
     char **argv;
 
+    int sock;
     bt_peer_t *peers;
 };
 typedef struct bt_config_s bt_config_t;

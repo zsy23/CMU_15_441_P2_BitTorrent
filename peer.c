@@ -57,7 +57,7 @@ int main(int argc, char **argv)
     return 0;
 }
 
-void process_inbound_udp(int sock)
+void process_inbound_udp(int sock, bt_config_t *config, chunk_table_t cktbl, chunk_info_t *ckinfo)
 {
     #define BUFLEN 1500
     struct sockaddr_in from;
@@ -72,13 +72,8 @@ void process_inbound_udp(int sock)
            inet_ntoa(from.sin_addr),
 	       ntohs(from.sin_port),
 	       buf);
-}
 
-void process_get(char *chunkfile, bt_config_t *config)
-{
-//    printf("PROCESS GET SKELETON CODE CALLED.  Fill me in!  (%s, %s)\n", 
-//            chunkfile, outputfile);
- 
+    process_packet((uint8_t *)buf, &from, config, cktbl, ckinfo);    
 }
 
 void handle_user_input(char *line, void *cbdata)
@@ -94,7 +89,7 @@ void handle_user_input(char *line, void *cbdata)
         if (strlen(outf) > 0)
         {
             strcpy(config->output_file, outf);
-            process_get(chunkf, config);
+            strcpy(config->has_chunk_file, chunkf);
         }
 }
 
@@ -104,7 +99,12 @@ void peer_run(bt_config_t *config)
     struct sockaddr_in myaddr;
     fd_set allset, rset;
     struct user_iobuf *userbuf;
+    chunk_table_t cktbl;
+    chunk_info_t *ckinfo = NULL;
   
+    bzero(cktbl, sizeof(chunk_table_t)); 
+    build_has_cktbl(config->has_chunk_file, cktbl);
+
     if ((userbuf = create_userbuf()) == NULL)
     {
         perror("peer_run could not allocate userbuf");
@@ -128,6 +128,8 @@ void peer_run(bt_config_t *config)
         exit(-1);
     }
   
+    config->sock = sock;
+
     spiffy_init(config->identity, (struct sockaddr *)&myaddr, sizeof(myaddr));
 
     FD_ZERO(&allset);
@@ -143,10 +145,14 @@ void peer_run(bt_config_t *config)
         if (nready > 0)
         {
             if (FD_ISSET(sock, &rset))
-	            process_inbound_udp(sock);
+	            process_inbound_udp(sock, config, cktbl, ckinfo);
       
             if (FD_ISSET(STDIN_FILENO, &rset))
+            {
                 process_user_input(STDIN_FILENO, userbuf, handle_user_input, config);
+                build_get_ckinfo(config->get_chunk_file, &ckinfo);
+                process_get(config, ckinfo);
+            }
         }
     }
 }
