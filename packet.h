@@ -39,5 +39,7 @@ int send_packet(int sock, bt_peer_t *peers, uint8_t type, uint32_t seq_ack, uint
 int do_send_packet(int sock, bt_peer_t *peers, packet *pkt);
 void process_get(bt_config_t *config, chunk_info_t *ckinfo);
 int process_packet(uint8_t *msg, struct sockaddr_in *from, bt_config_t *config, chunk_table_t cktbl, chunk_info_t *ckinfo);
+int process_whohas(const uint8_t *payload, uint16_t len, int sock, struct sockaddr_in *from, chunk_table_t cktbl);
+int process_ihave(const uint8_t *payload, uint16_t len, struct sockaddr_in *from, chunk_info_t *ckinfo);
 
 #endif /* _PACKET_H_ */

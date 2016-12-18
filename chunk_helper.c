@@ -7,6 +7,7 @@
 
 #include "chunk_helper.h"
 #include "super_fast_hash.h"
+#include "chunk.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -15,11 +16,13 @@
 int get_chunk_row(FILE *f, chunk_row_t *row)
 {
     char line[LINE_SIZE] = { 0 };
+    char hash[HASH_ASCII_SIZE + 1] = { 0 };
 
     if(fgets(line, LINE_SIZE, f) == NULL)
         return -1;
     
-    assert(sscanf(line, "%d %s", &row->id, row->hash) != 0);
+    assert(sscanf(line, "%d %s", &row->id, hash) != 0);
+    hex2binary(hash, HASH_ASCII_SIZE, row->hash);
 
     return 0;
 }
@@ -37,23 +40,23 @@ void build_cktbl(FILE *f, chunk_table_t cktbl)
         entry->row = row;
         entry->next = NULL;
 
-        i = super_fast_hash(entry->row.hash, HASH_ASCII_SIZE, HASH_ASCII_SIZE) % HASH_TABLE_SIZE;
+        i = super_fast_hash((const char *)entry->row.hash, HASH_BINARY_SIZE, HASH_BINARY_SIZE) % HASH_TABLE_SIZE;
         entry->next = cktbl[i];
         cktbl[i] = entry;
     }
 }
 
-int search_cktbl(const chunk_table_t cktbl, const char *hash)
+int search_cktbl(const chunk_table_t cktbl, const uint8_t *hash)
 {
     int i = -1;
     chunk_entry_t *entry;
 
-    i = super_fast_hash(hash, HASH_ASCII_SIZE, HASH_ASCII_SIZE) % HASH_TABLE_SIZE;
+    i = super_fast_hash((const char *)hash, HASH_BINARY_SIZE, HASH_BINARY_SIZE) % HASH_TABLE_SIZE;
 
     entry = cktbl[i];
     while(entry != NULL)
     {
-        if(strncmp(hash, entry->row.hash, HASH_ASCII_SIZE) == 0)
+        if(strncmp((const char *)hash, (const char *)entry->row.hash, HASH_BINARY_SIZE) == 0)
             return entry->row.id;
 
         entry = entry->next;
@@ -115,7 +118,8 @@ void build_get_ckinfo(const char *get_file, chunk_info_t **ckinfo)
         item->next = NULL;
         if(head == NULL)
             head = item;
-        cur->next = item;
+        else
+            cur->next = item;
         cur = item;
     }
     fclose(f);
