@@ -18,6 +18,8 @@ int get_chunk_row(FILE *f, chunk_row_t *row)
     char line[LINE_SIZE] = { 0 };
     char hash[HASH_ASCII_SIZE + 1] = { 0 };
 
+    assert(f != NULL);
+
     if(fgets(line, LINE_SIZE, f) == NULL)
         return -1;
     
@@ -46,7 +48,7 @@ void build_cktbl(FILE *f, chunk_table_t cktbl)
     }
 }
 
-int search_cktbl(const chunk_table_t cktbl, const uint8_t *hash)
+int search_cktbl(const chunk_table_t cktbl, uint8_t *hash)
 {
     int i = -1;
     chunk_entry_t *entry;
@@ -87,6 +89,8 @@ int check_has_chunk(const char *has_chunk, const char *master_chunk)
         if(search_cktbl(cktbl, row.hash) != row.id)
             return -1;
 
+    free_cktbl(cktbl);
+
     return 0;
 }
 
@@ -102,7 +106,7 @@ void build_has_cktbl(const char *has_file, chunk_table_t cktbl)
     fclose(f);
 }
 
-void build_get_ckinfo(const char *get_file, chunk_info_t **ckinfo)
+void build_get_ckarr(const char *get_file, chunk_array_t *ckarr)
 {
     int num = 0, i = 0;
     FILE *f = NULL;
@@ -125,11 +129,14 @@ void build_get_ckinfo(const char *get_file, chunk_info_t **ckinfo)
     fclose(f);
 
     cur = head;
-    *ckinfo = (chunk_info_t *)malloc(sizeof(chunk_info_t) * num);
+    ckarr->num = num;
+    ckarr->arr = (chunk_info_t *)malloc(sizeof(chunk_info_t) * num);
     for(i = 0; i < num; ++i)
     {
-        ckinfo[i]->row = cur->row;
-        ckinfo[i]->candidates = NULL;
+        assert(cur != NULL);
+
+        (ckarr->arr)[i].row = cur->row;
+        (ckarr->arr)[i].candidates = NULL;
         cur = cur->next;
     }
 
@@ -145,5 +152,39 @@ void free_entry(chunk_entry_t *head)
         tmp = head;
         head = head->next;
         free(tmp);
+    }
+}
+
+void free_cktbl(chunk_table_t cktbl)
+{
+    int i = 0;
+    chunk_entry_t *tmp = NULL, *cur = NULL;
+
+    for(i = 0; i < HASH_TABLE_SIZE; ++i)
+    {
+        cur = cktbl[i];
+        while(cur != NULL)
+        {
+            tmp = cur;
+            cur = cur->next;
+            free(tmp);
+        }
+    }
+}
+
+void free_ckarr(chunk_array_t *ckarr)
+{
+    int i = 0;
+    bt_peer_t *peer = NULL, *tmp = NULL;
+
+    for(i = 0; i < ckarr->num; ++i)
+    {
+        peer = (ckarr->arr)[i].candidates;
+        while(peer != NULL)
+        {
+            tmp = peer;
+            peer = peer->next;
+            free(tmp);
+        }
     }
 }

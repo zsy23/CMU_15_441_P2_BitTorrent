@@ -7,6 +7,8 @@
  * Skeleton for 15-441 Project 2 command line and config file parsing
  * stubs.
  *
+ * Author: Shiyu Zhang <1181856726@qq.com>
+ *
  */
 
 #ifndef _BT_PARSE_H_
@@ -51,5 +53,6 @@ void bt_parse_share_file(bt_config_t *c);
 void bt_parse_peer_list(bt_config_t *c);
 void bt_dump_config(bt_config_t *c);
 bt_peer_t *bt_peer_info(const bt_config_t *c, int peer_id);
+void free_peer_list(bt_peer_t *peers);
 
 #endif /* _BT_PARSE_H_ */

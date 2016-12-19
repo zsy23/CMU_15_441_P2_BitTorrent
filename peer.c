@@ -1,11 +1,13 @@
 /*
  * peer.c
  *
- * Authors: Ed Bardsley <ebardsle+441@andrew.cmu.edu>,
+ * Initial Authors: Ed Bardsley <ebardsle+441@andrew.cmu.edu>,
  *          Dave Andersen
  * Class: 15-441 (Spring 2005)
  *
  * Skeleton for 15-441 Project 2.
+ *
+ * Author: Shiyu Zhang <1181856726@qq.com>
  *
  */
 
@@ -54,10 +56,13 @@ int main(int argc, char **argv)
     }
   
     peer_run(&config);
+
+    free_peer_list(config.peers);
+
     return 0;
 }
 
-void process_inbound_udp(int sock, bt_config_t *config, chunk_table_t cktbl, chunk_info_t *ckinfo)
+void process_inbound_udp(int sock, bt_config_t *config, chunk_table_t cktbl, chunk_array_t *ckarr)
 {
     #define BUFLEN 1500
     struct sockaddr_in from;
@@ -67,13 +72,7 @@ void process_inbound_udp(int sock, bt_config_t *config, chunk_table_t cktbl, chu
     fromlen = sizeof(from);
     spiffy_recvfrom(sock, buf, BUFLEN, 0, (struct sockaddr *) &from, &fromlen);
 
-    printf("PROCESS_INBOUND_UDP SKELETON -- replace!\n" 
-           "Incoming message from %s:%d\n%s\n\n", 
-           inet_ntoa(from.sin_addr),
-	       ntohs(from.sin_port),
-	       buf);
-
-    process_packet((uint8_t *)buf, &from, config, cktbl, ckinfo);    
+    process_packet((uint8_t *)buf, &from, config, cktbl, ckarr);    
 }
 
 void handle_user_input(char *line, void *cbdata)
@@ -89,18 +88,20 @@ void handle_user_input(char *line, void *cbdata)
         if (strlen(outf) > 0)
         {
             strcpy(config->output_file, outf);
-            strcpy(config->has_chunk_file, chunkf);
+            strcpy(config->get_chunk_file, chunkf);
         }
 }
 
 void peer_run(bt_config_t *config)
 {
+    #include "chunk.h"
+
     int sock, nready;
     struct sockaddr_in myaddr;
     fd_set allset, rset;
     struct user_iobuf *userbuf;
     chunk_table_t cktbl;
-    chunk_info_t *ckinfo = NULL;
+    chunk_array_t ckarr;
   
     bzero(cktbl, sizeof(chunk_table_t)); 
     build_has_cktbl(config->has_chunk_file, cktbl);
@@ -145,14 +146,19 @@ void peer_run(bt_config_t *config)
         if (nready > 0)
         {
             if (FD_ISSET(sock, &rset))
-	            process_inbound_udp(sock, config, cktbl, ckinfo);
+	            process_inbound_udp(sock, config, cktbl, &ckarr);
       
             if (FD_ISSET(STDIN_FILENO, &rset))
             {
                 process_user_input(STDIN_FILENO, userbuf, handle_user_input, config);
-                build_get_ckinfo(config->get_chunk_file, &ckinfo);
-                process_get(config, ckinfo);
+                build_get_ckarr(config->get_chunk_file, &ckarr);
+                process_get(config, &ckarr);
             }
         }
     }
+
+    free(userbuf->buf);
+    free(userbuf);
+    free_cktbl(cktbl);
+    free_ckarr(&ckarr);
 }

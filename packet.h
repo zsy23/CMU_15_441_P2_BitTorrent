@@ -14,6 +14,8 @@
 #include <stdint.h>
 
 #define HDR_SIZE 16
+#define MAGIC 15441
+#define VERSION 1
 
 enum packet_type {
     WHOHAS, // 0
@@ -35,11 +37,13 @@ typedef struct {
     uint8_t payload[0];
 } __attribute__((__packed__)) packet;
 
-int send_packet(int sock, bt_peer_t *peers, uint8_t type, uint32_t seq_ack, uint8_t *payload);
-int do_send_packet(int sock, bt_peer_t *peers, packet *pkt);
-void process_get(bt_config_t *config, chunk_info_t *ckinfo);
-int process_packet(uint8_t *msg, struct sockaddr_in *from, bt_config_t *config, chunk_table_t cktbl, chunk_info_t *ckinfo);
-int process_whohas(const uint8_t *payload, uint16_t len, int sock, struct sockaddr_in *from, chunk_table_t cktbl);
-int process_ihave(const uint8_t *payload, uint16_t len, struct sockaddr_in *from, chunk_info_t *ckinfo);
+void send_packet(int sock, bt_peer_t *peers, uint8_t type, uint32_t seq_ack, uint8_t *payload, uint32_t len);
+void do_send_packet(int sock, bt_peer_t *peers, packet *pkt);
+void process_get(bt_config_t *config, chunk_array_t *ckarr);
+void process_packet(uint8_t *msg, struct sockaddr_in *from, bt_config_t *config, chunk_table_t cktbl, chunk_array_t *ckarr);
+void process_whohas(uint8_t *payload, uint16_t len, int sock, struct sockaddr_in *from, chunk_table_t cktbl);
+void process_ihave(uint8_t *payload, uint16_t len, struct sockaddr_in *from, chunk_array_t *ckarr);
+
+void print_packet(int type, const struct sockaddr_in *addr, packet *pkt);
 
 #endif /* _PACKET_H_ */

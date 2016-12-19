@@ -6,6 +6,8 @@
  *
  * Skeleton for 15-441 Project 2 command line parsing.
  *
+ * Author: Shiyu Zhang <1181856726@qq.com>
+ *
  */
 
 #include <assert.h>
@@ -206,4 +208,16 @@ void bt_dump_config(bt_config_t *config)
   
     for (p = config->peers; p; p = p->next) 
         printf("  peer %d: %s:%d\n", p->id, inet_ntoa(p->addr.sin_addr), ntohs(p->addr.sin_port));
+}
+
+void free_peer_list(bt_peer_t *peers)
+{
+    bt_peer_t *tmp = NULL;
+
+    while(peers != NULL)
+    {
+        tmp = peers;
+        peers = peers->next;
+        free(tmp);
+    }
 }
