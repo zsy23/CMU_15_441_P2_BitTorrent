@@ -52,23 +52,7 @@ void do_send_packet(int sock, bt_peer_t *peers, packet *pkt)
     }
 }
 
-void process_get(bt_config_t *config, chunk_array_t *ckarr)
-{
-    uint8_t i = 0, num = ckarr->num;
-    uint8_t *payload = (uint8_t *)malloc(sizeof(uint8_t) * (4 + HASH_BINARY_SIZE * num));
-
-    bzero(payload, sizeof(payload));
-
-    payload[0] = num;
-    for(i = 0; i < num; ++i)
-        memcpy(payload + 4 + HASH_BINARY_SIZE * i, (ckarr->arr)[i].row.hash, HASH_BINARY_SIZE);
-
-    send_packet(config->sock, config->peers, WHOHAS, 0, payload, 4 + HASH_BINARY_SIZE * num);
-
-    free(payload);
-}
-
-void process_packet(uint8_t *msg, struct sockaddr_in *from, bt_config_t *config, chunk_table_t cktbl, chunk_array_t *ckarr)
+void process_packet(uint8_t *msg, struct sockaddr_in *from, bt_config_t *config, chunk_table_t cktbl, chunk_array_t *ckarr, get_info_t *getinfo)
 {
     packet *pkt = (packet *)msg; 
 
@@ -85,7 +69,7 @@ void process_packet(uint8_t *msg, struct sockaddr_in *from, bt_config_t *config,
             process_whohas(pkt->payload, ntohs(pkt->tot_len) - HDR_SIZE, config->sock, from, cktbl);
             break;
         case IHAVE:
-            process_ihave(pkt->payload, ntohs(pkt->tot_len) - HDR_SIZE, from, ckarr);
+            process_ihave(pkt->payload, ntohs(pkt->tot_len) - HDR_SIZE, from, config, ckarr, getinfo);
             break;
         default:
             break;
@@ -140,10 +124,12 @@ void process_whohas(uint8_t *payload, uint16_t len, int sock, struct sockaddr_in
     }
 }
 
-void process_ihave(uint8_t *payload, uint16_t len, struct sockaddr_in *from, chunk_array_t *ckarr)
+void process_ihave(uint8_t *payload, uint16_t len, struct sockaddr_in *from, bt_config_t *config, chunk_array_t *ckarr, get_info_t *getinfo)
 {
     uint8_t i = 0, j = 0, num = payload[0], num_info = ckarr->num, left = payload[0];
     chunk_row_t *rows = (chunk_row_t *)malloc(sizeof(chunk_row_t) * num);
+    char ascii[HASH_ASCII_SIZE + 1] = { 0 };
+    bt_peer_t *peer = NULL;
 
     assert(num > 0);
     assert(len == (4 + HASH_BINARY_SIZE * num));
@@ -176,10 +162,47 @@ void process_ihave(uint8_t *payload, uint16_t len, struct sockaddr_in *from, chu
     }
 
     free(rows);
+
+    if(getinfo->start == 0)
+    {
+        for(i = 0; i < num_info; ++i)
+            if((ckarr->arr)[i].candidates == NULL)
+                return;
+    }
+    
+    DPRINTF(DEBUG_PROCESSES, "============================================\n");
+    DPRINTF(DEBUG_PROCESSES, "Receive IHAVE for all chunks\n");
+    for(i = 0; i < ckarr->num; ++i)
+    {
+        binary2hex((ckarr->arr)[i].row.hash, HASH_BINARY_SIZE, ascii);
+        ascii[HASH_ASCII_SIZE] = 0;
+        DPRINTF(DEBUG_PROCESSES, "hash %d: %s\n", (ckarr->arr)[i].row.id, ascii);
+        peer = (ckarr->arr)[i].candidates;
+        j = 1;
+        while(peer != NULL)
+        {
+            DPRINTF(DEBUG_PROCESSES, "candidate %d: %s:%d\n", 
+                    j, inet_ntoa(peer->addr.sin_addr), ntohs(peer->addr.sin_port));
+            ++j;
+            peer = peer->next;
+        }
+    }
+    
+    if(getinfo->start == 0)
+    {
+        getinfo->start = 1;
+        send_get(config, ckarr, getinfo);
+    }
+}
+
+void send_get(bt_config_t *config, chunk_array_t *ckarr, get_info_t *getinfo)
+{
+
 }
 
 void print_packet(int type, const struct sockaddr_in *addr, packet *pkt)
 {
+    DPRINTF(DEBUG_PROCESSES, "============================================\n");
     DPRINTF(DEBUG_PROCESSES, "%s message to %s:%d\n",
             type == 0 ? "Send" : "Receive", 
             inet_ntoa(addr->sin_addr), ntohs(addr->sin_port));

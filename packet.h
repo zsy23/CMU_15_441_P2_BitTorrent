@@ -37,13 +37,18 @@ typedef struct {
     uint8_t payload[0];
 } __attribute__((__packed__)) packet;
 
+typedef struct {
+    uint8_t start;
+    uint16_t conn_num;
+    bt_peer_t *conn;
+} get_info_t;
+
 void send_packet(int sock, bt_peer_t *peers, uint8_t type, uint32_t seq_ack, uint8_t *payload, uint32_t len);
 void do_send_packet(int sock, bt_peer_t *peers, packet *pkt);
-void process_get(bt_config_t *config, chunk_array_t *ckarr);
-void process_packet(uint8_t *msg, struct sockaddr_in *from, bt_config_t *config, chunk_table_t cktbl, chunk_array_t *ckarr);
+void process_packet(uint8_t *msg, struct sockaddr_in *from, bt_config_t *config, chunk_table_t cktbl, chunk_array_t *ckarr, get_info_t *getinfo);
 void process_whohas(uint8_t *payload, uint16_t len, int sock, struct sockaddr_in *from, chunk_table_t cktbl);
-void process_ihave(uint8_t *payload, uint16_t len, struct sockaddr_in *from, chunk_array_t *ckarr);
-
+void process_ihave(uint8_t *payload, uint16_t len, struct sockaddr_in *from, bt_config_t *config, chunk_array_t *ckarr, get_info_t *getinfo);
+void send_get(bt_config_t *config, chunk_array_t *ckarr, get_info_t *getinfo);
 void print_packet(int type, const struct sockaddr_in *addr, packet *pkt);
 
 #endif /* _PACKET_H_ */

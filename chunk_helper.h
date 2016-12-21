@@ -31,6 +31,7 @@ typedef struct chunk_entry_s {
 typedef struct {
     chunk_row_t row;
     bt_peer_t *candidates;
+    uint8_t done;
 } chunk_info_t;
 
 typedef struct {

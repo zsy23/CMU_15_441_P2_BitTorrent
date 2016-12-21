@@ -62,7 +62,7 @@ int main(int argc, char **argv)
     return 0;
 }
 
-void process_inbound_udp(int sock, bt_config_t *config, chunk_table_t cktbl, chunk_array_t *ckarr)
+void process_inbound_udp(int sock, bt_config_t *config, chunk_table_t cktbl, chunk_array_t *ckarr, get_info_t *getinfo)
 {
     #define BUFLEN 1500
     struct sockaddr_in from;
@@ -72,7 +72,7 @@ void process_inbound_udp(int sock, bt_config_t *config, chunk_table_t cktbl, chu
     fromlen = sizeof(from);
     spiffy_recvfrom(sock, buf, BUFLEN, 0, (struct sockaddr *) &from, &fromlen);
 
-    process_packet((uint8_t *)buf, &from, config, cktbl, ckarr);    
+    process_packet((uint8_t *)buf, &from, config, cktbl, ckarr, getinfo);    
 }
 
 void handle_user_input(char *line, void *cbdata)
@@ -92,6 +92,22 @@ void handle_user_input(char *line, void *cbdata)
         }
 }
 
+void process_get_cmd(bt_config_t *config, chunk_array_t *ckarr)
+{
+    uint8_t i = 0, num = ckarr->num;
+    uint8_t *payload = (uint8_t *)malloc(sizeof(uint8_t) * (4 + HASH_BINARY_SIZE * num));
+
+    bzero(payload, sizeof(payload));
+
+    payload[0] = num;
+    for(i = 0; i < num; ++i)
+        memcpy(payload + 4 + HASH_BINARY_SIZE * i, (ckarr->arr)[i].row.hash, HASH_BINARY_SIZE);
+
+    send_packet(config->sock, config->peers, WHOHAS, 0, payload, 4 + HASH_BINARY_SIZE * num);
+
+    free(payload);
+}
+
 void peer_run(bt_config_t *config)
 {
     #include "chunk.h"
@@ -102,9 +118,14 @@ void peer_run(bt_config_t *config)
     struct user_iobuf *userbuf;
     chunk_table_t cktbl;
     chunk_array_t ckarr;
+    get_info_t getinfo;
   
     bzero(cktbl, sizeof(chunk_table_t)); 
     build_has_cktbl(config->has_chunk_file, cktbl);
+
+    getinfo.start = 0;
+    getinfo.conn_num = 0;
+    getinfo.conn = NULL;
 
     if ((userbuf = create_userbuf()) == NULL)
     {
@@ -146,13 +167,13 @@ void peer_run(bt_config_t *config)
         if (nready > 0)
         {
             if (FD_ISSET(sock, &rset))
-	            process_inbound_udp(sock, config, cktbl, &ckarr);
+	            process_inbound_udp(sock, config, cktbl, &ckarr, &getinfo);
       
             if (FD_ISSET(STDIN_FILENO, &rset))
             {
                 process_user_input(STDIN_FILENO, userbuf, handle_user_input, config);
                 build_get_ckarr(config->get_chunk_file, &ckarr);
-                process_get(config, &ckarr);
+                process_get_cmd(config, &ckarr);
             }
         }
     }
