@@ -14,6 +14,16 @@
 #include <assert.h>
 #include <arpa/inet.h>
 
+const char *pkt_type_strings[] = {
+    "WHOHAS",
+    "IHAVE",
+    "GET",
+    "DATA",
+    "ACK",
+    "DENIED",
+    0,
+};
+
 void send_packet(int sock, bt_peer_t *peers, uint8_t type, uint32_t seq_ack, uint8_t *payload, uint32_t len)
 {
     packet *pkt = (packet *)malloc(sizeof(packet) + len);
@@ -27,8 +37,9 @@ void send_packet(int sock, bt_peer_t *peers, uint8_t type, uint32_t seq_ack, uin
     pkt->ack = 0;
     switch(type)
     {
-        case WHOHAS:
-        case IHAVE:
+        case PKT_WHOHAS:
+        case PKT_IHAVE:
+        case PKT_GET:
             break;
         default:
             break;
@@ -54,6 +65,8 @@ void do_send_packet(int sock, bt_peer_t *peers, packet *pkt)
 
 void process_packet(uint8_t *msg, struct sockaddr_in *from, bt_config_t *config, chunk_table_t cktbl, chunk_array_t *ckarr, get_info_t *getinfo)
 {
+    assert(bt_peer_id(config, from) >= 0);
+
     packet *pkt = (packet *)msg; 
 
     assert(ntohs(pkt->magic) == MAGIC);
@@ -65,11 +78,14 @@ void process_packet(uint8_t *msg, struct sockaddr_in *from, bt_config_t *config,
 
     switch(pkt->type)
     {
-        case WHOHAS:
+        case PKT_WHOHAS:
             process_whohas(pkt->payload, ntohs(pkt->tot_len) - HDR_SIZE, config->sock, from, cktbl);
             break;
-        case IHAVE:
+        case PKT_IHAVE:
             process_ihave(pkt->payload, ntohs(pkt->tot_len) - HDR_SIZE, from, config, ckarr, getinfo);
+            break;
+        case PKT_GET:
+            process_get(pkt->payload, ntohs(pkt->tot_len) - HDR_SIZE, from);
             break;
         default:
             break;
@@ -117,7 +133,7 @@ void process_whohas(uint8_t *payload, uint16_t len, int sock, struct sockaddr_in
             cur = cur->next;
         }
 
-        send_packet(sock, &peer, IHAVE, 0, payload_send, 4 + HASH_BINARY_SIZE * num_send);
+        send_packet(sock, &peer, PKT_IHAVE, 0, payload_send, 4 + HASH_BINARY_SIZE * num_send);
 
         free(payload_send);
         free_entry(head);
@@ -150,6 +166,7 @@ void process_ihave(uint8_t *payload, uint16_t len, struct sockaddr_in *from, bt_
                 if(strncmp((const char *)(ckarr->arr)[i].row.hash, (const char *)rows[j].hash, HASH_BINARY_SIZE) == 0)
                 {
                     bt_peer_t *peer = (bt_peer_t *)malloc(sizeof(bt_peer_t));
+                    peer->id = bt_peer_id(config, from);
                     peer->addr = *from;
                     peer->next = (ckarr->arr)[i].candidates;
                     (ckarr->arr)[i].candidates = peer;
@@ -181,8 +198,8 @@ void process_ihave(uint8_t *payload, uint16_t len, struct sockaddr_in *from, bt_
         j = 1;
         while(peer != NULL)
         {
-            DPRINTF(DEBUG_PROCESSES, "candidate %d: %s:%d\n", 
-                    j, inet_ntoa(peer->addr.sin_addr), ntohs(peer->addr.sin_port));
+            DPRINTF(DEBUG_PROCESSES, "candidate %d: id: %d, addr: %s:%d\n", 
+                    j, peer->id, inet_ntoa(peer->addr.sin_addr), ntohs(peer->addr.sin_port));
             ++j;
             peer = peer->next;
         }
@@ -195,9 +212,38 @@ void process_ihave(uint8_t *payload, uint16_t len, struct sockaddr_in *from, bt_
     }
 }
 
+void process_get(uint8_t *payload, uint16_t len, struct sockaddr_in *from)
+{
+    assert(len == HASH_BINARY_SIZE);
+}
+
 void send_get(bt_config_t *config, chunk_array_t *ckarr, get_info_t *getinfo)
 {
+    int i;
 
+    while(getinfo->conn_num < config->max_conn)
+    {
+        for(i = 0; i < getinfo->num; ++i)
+            if(getinfo->conn[i].ckstt == CHUNK_UNGOT)
+            {
+                uint8_t payload[HASH_BINARY_SIZE]; 
+
+                getinfo->conn[i].ckstt = CHUNK_PENDING;
+                getinfo->conn[i].peer.id = ckarr->arr[i].candidates->id;
+                getinfo->conn[i].peer.addr = ckarr->arr[i].candidates->addr;
+                getinfo->conn[i].peer.next = NULL;
+
+                memcpy(payload, ckarr->arr[i].row.hash, HASH_BINARY_SIZE);
+
+                send_packet(config->sock, &getinfo->conn[i].peer, PKT_GET, 0, payload, HASH_BINARY_SIZE);
+
+                ++getinfo->conn_num;
+                break;
+            }
+
+        if(i >= getinfo->num)
+            break;
+    }
 }
 
 void print_packet(int type, const struct sockaddr_in *addr, packet *pkt)
@@ -206,15 +252,29 @@ void print_packet(int type, const struct sockaddr_in *addr, packet *pkt)
     DPRINTF(DEBUG_PROCESSES, "%s message to %s:%d\n",
             type == 0 ? "Send" : "Receive", 
             inet_ntoa(addr->sin_addr), ntohs(addr->sin_port));
-    DPRINTF(DEBUG_PROCESSES, "Magic: %u, Version: %u, Type: %u, Header_Length: %u, Total_Length: %u, Seq: %u, Ack: %u\n", 
-            ntohs(pkt->magic), pkt->version, pkt->type, ntohs(pkt->hdr_len), ntohs(pkt->tot_len), ntohl(pkt->seq), ntohl(pkt->ack));
-    int num = pkt->payload[0], i = 0;
+    DPRINTF(DEBUG_PROCESSES, "Magic: %u, Version: %u, Type: %s, Header_Length: %u, Total_Length: %u, Seq: %u, Ack: %u\n", 
+            ntohs(pkt->magic), pkt->version, pkt_type_strings[pkt->type], ntohs(pkt->hdr_len), ntohs(pkt->tot_len), ntohl(pkt->seq), ntohl(pkt->ack));
+    int num = 0, i = 0;
     char hash[HASH_ASCII_SIZE + 1] = { 0 };
-    DPRINTF(DEBUG_PROCESSES, "Hash_Num: %d\n", num);
-    for(i = 0; i < num; ++i)
+    switch(pkt->type)
     {
-        binary2hex(pkt->payload + 4 + HASH_BINARY_SIZE * i, HASH_BINARY_SIZE, hash);
-        hash[HASH_ASCII_SIZE] = 0;
-        DPRINTF(DEBUG_PROCESSES, "Hash %d: %s\n", i, hash);
+        case PKT_WHOHAS:
+        case PKT_IHAVE:
+            num = pkt->payload[0];
+            DPRINTF(DEBUG_PROCESSES, "Hash_Num: %d\n", num);
+            for(i = 0; i < num; ++i)
+            {
+                binary2hex(pkt->payload + 4 + HASH_BINARY_SIZE * i, HASH_BINARY_SIZE, hash);
+                hash[HASH_ASCII_SIZE] = 0;
+                DPRINTF(DEBUG_PROCESSES, "Hash %d: %s\n", i, hash);
+            }
+            break;
+        case PKT_GET:
+            binary2hex(pkt->payload, HASH_BINARY_SIZE, hash);
+            hash[HASH_ASCII_SIZE] = 0;
+            DPRINTF(DEBUG_PROCESSES, "Hash: %s\n", hash);
+            break;
+        default:
+            break;
     }
 }

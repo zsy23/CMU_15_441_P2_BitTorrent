@@ -53,6 +53,7 @@ void bt_parse_share_file(bt_config_t *c);
 void bt_parse_peer_list(bt_config_t *c);
 void bt_dump_config(bt_config_t *c);
 bt_peer_t *bt_peer_info(const bt_config_t *c, int peer_id);
+int bt_peer_id(const bt_config_t *c, struct sockaddr_in *addr);
 void free_peer_list(bt_peer_t *peers);
 
 #endif /* _BT_PARSE_H_ */

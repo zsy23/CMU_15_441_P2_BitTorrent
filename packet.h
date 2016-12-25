@@ -17,14 +17,14 @@
 #define MAGIC 15441
 #define VERSION 1
 
-enum packet_type {
-    WHOHAS, // 0
-    IHAVE,  // 1
-    GET,    // 2
-    DATA,   // 3
-    ACK,    // 4
-    DENIED, // 5
-};
+typedef enum {
+    PKT_WHOHAS, // 0
+    PKT_IHAVE,  // 1
+    PKT_GET,    // 2
+    PKT_DATA,   // 3
+    PKT_ACK,    // 4
+    PKT_DENIED, // 5
+} packet_type;
 
 typedef struct {
     uint16_t magic;
@@ -37,10 +37,22 @@ typedef struct {
     uint8_t payload[0];
 } __attribute__((__packed__)) packet;
 
+typedef enum {
+    CHUNK_UNGOT,   // 0
+    CHUNK_PENDING, // 1
+    CHUNK_GOT,     // 2
+} chunk_state;
+
+typedef struct {
+    chunk_state ckstt;
+    bt_peer_t peer;
+} conn_t;
+
 typedef struct {
     uint8_t start;
     uint16_t conn_num;
-    bt_peer_t *conn;
+    uint16_t num;
+    conn_t *conn;
 } get_info_t;
 
 void send_packet(int sock, bt_peer_t *peers, uint8_t type, uint32_t seq_ack, uint8_t *payload, uint32_t len);
@@ -48,6 +60,7 @@ void do_send_packet(int sock, bt_peer_t *peers, packet *pkt);
 void process_packet(uint8_t *msg, struct sockaddr_in *from, bt_config_t *config, chunk_table_t cktbl, chunk_array_t *ckarr, get_info_t *getinfo);
 void process_whohas(uint8_t *payload, uint16_t len, int sock, struct sockaddr_in *from, chunk_table_t cktbl);
 void process_ihave(uint8_t *payload, uint16_t len, struct sockaddr_in *from, bt_config_t *config, chunk_array_t *ckarr, get_info_t *getinfo);
+void process_get(uint8_t *payload, uint16_t len, struct sockaddr_in *from);
 void send_get(bt_config_t *config, chunk_array_t *ckarr, get_info_t *getinfo);
 void print_packet(int type, const struct sockaddr_in *addr, packet *pkt);
 

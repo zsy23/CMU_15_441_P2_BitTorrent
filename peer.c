@@ -103,7 +103,7 @@ void process_get_cmd(bt_config_t *config, chunk_array_t *ckarr)
     for(i = 0; i < num; ++i)
         memcpy(payload + 4 + HASH_BINARY_SIZE * i, (ckarr->arr)[i].row.hash, HASH_BINARY_SIZE);
 
-    send_packet(config->sock, config->peers, WHOHAS, 0, payload, 4 + HASH_BINARY_SIZE * num);
+    send_packet(config->sock, config->peers, PKT_WHOHAS, 0, payload, 4 + HASH_BINARY_SIZE * num);
 
     free(payload);
 }
@@ -112,7 +112,7 @@ void peer_run(bt_config_t *config)
 {
     #include "chunk.h"
 
-    int sock, nready;
+    int i, sock, nready;
     struct sockaddr_in myaddr;
     fd_set allset, rset;
     struct user_iobuf *userbuf;
@@ -123,8 +123,12 @@ void peer_run(bt_config_t *config)
     bzero(cktbl, sizeof(chunk_table_t)); 
     build_has_cktbl(config->has_chunk_file, cktbl);
 
+    ckarr.num = 0;
+    ckarr.arr = NULL;
+
     getinfo.start = 0;
     getinfo.conn_num = 0;
+    getinfo.num = 0;
     getinfo.conn = NULL;
 
     if ((userbuf = create_userbuf()) == NULL)
@@ -173,6 +177,12 @@ void peer_run(bt_config_t *config)
             {
                 process_user_input(STDIN_FILENO, userbuf, handle_user_input, config);
                 build_get_ckarr(config->get_chunk_file, &ckarr);
+
+                getinfo.num = ckarr.num;
+                getinfo.conn = (conn_t *)malloc(getinfo.num * sizeof(conn_t));
+                for(i = 0; i < getinfo.num; ++i)
+                    getinfo.conn[i].ckstt = CHUNK_UNGOT;
+
                 process_get_cmd(config, &ckarr);
             }
         }
@@ -182,4 +192,5 @@ void peer_run(bt_config_t *config)
     free(userbuf);
     free_cktbl(cktbl);
     free_ckarr(&ckarr);
+    free(getinfo.conn);
 }
