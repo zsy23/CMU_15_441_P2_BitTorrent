@@ -17,6 +17,14 @@
 #define MAGIC 15441
 #define VERSION 1
 
+#define BM_CLR(bm, num) { \
+    for(int i = 0; i <= (num / 32); ++i) \
+        bm[i] &= 0; \
+}
+#define BIT_SET(bm, id) (bm[id / 32] |= (1 << (id % 32)))
+#define BIT_CLR(bm, id) (bm[id / 32] &= ~(1 << (id % 32)))
+#define BIT_ISSET(bm, id) ((bm[id / 32] & (1 << (id % 32))) != 0)
+
 typedef enum {
     PKT_WHOHAS, // 0
     PKT_IHAVE,  // 1
@@ -37,22 +45,11 @@ typedef struct {
     uint8_t payload[0];
 } __attribute__((__packed__)) packet;
 
-typedef enum {
-    CHUNK_UNGOT,   // 0
-    CHUNK_PENDING, // 1
-    CHUNK_GOT,     // 2
-} chunk_state;
-
-typedef struct {
-    chunk_state ckstt;
-    bt_peer_t peer;
-} conn_t;
-
 typedef struct {
     uint8_t start;
     uint16_t conn_num;
-    uint16_t num;
-    conn_t *conn;
+    uint16_t peer_num;
+    uint32_t *bitmap;
 } get_info_t;
 
 void send_packet(int sock, bt_peer_t *peers, uint8_t type, uint32_t seq_ack, uint8_t *payload, uint32_t len);

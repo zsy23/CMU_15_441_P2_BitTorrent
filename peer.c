@@ -112,7 +112,7 @@ void peer_run(bt_config_t *config)
 {
     #include "chunk.h"
 
-    int i, sock, nready;
+    int sock, nready;
     struct sockaddr_in myaddr;
     fd_set allset, rset;
     struct user_iobuf *userbuf;
@@ -128,8 +128,11 @@ void peer_run(bt_config_t *config)
 
     getinfo.start = 0;
     getinfo.conn_num = 0;
-    getinfo.num = 0;
-    getinfo.conn = NULL;
+    getinfo.peer_num = 0;
+    getinfo.bitmap = NULL;
+    for(bt_peer_t *peer = config->peers; peer != NULL; peer = peer->next, ++getinfo.peer_num);
+    getinfo.bitmap = (uint32_t *)malloc(sizeof(uint32_t) * ((getinfo.peer_num / 32) + 1));
+    BM_CLR(getinfo.bitmap, getinfo.peer_num);
 
     if ((userbuf = create_userbuf()) == NULL)
     {
@@ -177,12 +180,6 @@ void peer_run(bt_config_t *config)
             {
                 process_user_input(STDIN_FILENO, userbuf, handle_user_input, config);
                 build_get_ckarr(config->get_chunk_file, &ckarr);
-
-                getinfo.num = ckarr.num;
-                getinfo.conn = (conn_t *)malloc(getinfo.num * sizeof(conn_t));
-                for(i = 0; i < getinfo.num; ++i)
-                    getinfo.conn[i].ckstt = CHUNK_UNGOT;
-
                 process_get_cmd(config, &ckarr);
             }
         }
@@ -192,5 +189,5 @@ void peer_run(bt_config_t *config)
     free(userbuf);
     free_cktbl(cktbl);
     free_ckarr(&ckarr);
-    free(getinfo.conn);
+    free(getinfo.bitmap);
 }

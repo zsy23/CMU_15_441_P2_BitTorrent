@@ -220,28 +220,35 @@ void process_get(uint8_t *payload, uint16_t len, struct sockaddr_in *from)
 void send_get(bt_config_t *config, chunk_array_t *ckarr, get_info_t *getinfo)
 {
     int i;
+    bt_peer_t *peer = NULL;
 
     while(getinfo->conn_num < config->max_conn)
     {
-        for(i = 0; i < getinfo->num; ++i)
-            if(getinfo->conn[i].ckstt == CHUNK_UNGOT)
+        for(i = 0; i < ckarr->num; ++i)
+            if(ckarr->arr[i].state == CHUNK_UNGOT)
             {
-                uint8_t payload[HASH_BINARY_SIZE]; 
+                for(peer = ckarr->arr[i].candidates; peer != NULL && BIT_ISSET(getinfo->bitmap, peer->id); peer = peer->next);
+                if(peer != NULL)
+                {
+                    uint8_t payload[HASH_BINARY_SIZE]; 
+                    bt_peer_t p;
 
-                getinfo->conn[i].ckstt = CHUNK_PENDING;
-                getinfo->conn[i].peer.id = ckarr->arr[i].candidates->id;
-                getinfo->conn[i].peer.addr = ckarr->arr[i].candidates->addr;
-                getinfo->conn[i].peer.next = NULL;
+                    memcpy(payload, ckarr->arr[i].row.hash, HASH_BINARY_SIZE);
+                    p.id = peer->id;
+                    p.addr = peer->addr;
+                    p.next = NULL;
 
-                memcpy(payload, ckarr->arr[i].row.hash, HASH_BINARY_SIZE);
+                    send_packet(config->sock, &p, PKT_GET, 0, payload, HASH_BINARY_SIZE);
 
-                send_packet(config->sock, &getinfo->conn[i].peer, PKT_GET, 0, payload, HASH_BINARY_SIZE);
+                    ckarr->arr[i].state = CHUNK_PENDING;
 
-                ++getinfo->conn_num;
-                break;
+                    ++getinfo->conn_num;
+                    BIT_SET(getinfo->bitmap, p.id);
+                    break;
+                }
             }
 
-        if(i >= getinfo->num)
+        if(i >= ckarr->num)
             break;
     }
 }

@@ -18,6 +18,12 @@
 #define HASH_BINARY_SIZE (HASH_ASCII_SIZE / 2)
 #define HASH_TABLE_SIZE 6
 
+typedef enum {
+    CHUNK_UNGOT,   // 0
+    CHUNK_PENDING, // 1
+    CHUNK_GOT,     // 2
+} chunk_state;
+
 typedef struct {
     int id;
     uint8_t hash[HASH_BINARY_SIZE];
@@ -31,7 +37,7 @@ typedef struct chunk_entry_s {
 typedef struct {
     chunk_row_t row;
     bt_peer_t *candidates;
-    uint8_t done;
+    chunk_state state;
 } chunk_info_t;
 
 typedef struct {

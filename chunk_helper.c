@@ -137,7 +137,7 @@ void build_get_ckarr(const char *get_file, chunk_array_t *ckarr)
 
         (ckarr->arr)[i].row = cur->row;
         (ckarr->arr)[i].candidates = NULL;
-        (ckarr->arr)[i].done = 0;
+        (ckarr->arr)[i].state = CHUNK_UNGOT;
         cur = cur->next;
     }
 
