@@ -12,6 +12,11 @@
 #include "chunk_helper.h"
 
 #include <stdint.h>
+#include <time.h>
+
+#define WIN_SIZE 8
+#define TIMEOUT 5
+#define RETRANSMIT_TIMES 5
 
 #define HDR_SIZE 16
 #define MAGIC 15441
@@ -46,13 +51,22 @@ typedef struct {
 } __attribute__((__packed__)) packet;
 
 typedef struct {
+    uint8_t win_size;
+    uint32_t seq, ack;
+    uint8_t dup;
+    time_t timeout;
+    uint8_t re_times;
+    packet *pre_pkt; 
+} congestion_t;
+
+typedef struct {
     uint8_t start;
     uint16_t conn_num;
     uint16_t peer_num;
-    uint32_t *bitmap;
+    congestion_t **cgest;
 } get_info_t;
 
-void send_packet(int sock, bt_peer_t *peers, uint8_t type, uint32_t seq_ack, uint8_t *payload, uint32_t len);
+void send_packet(int sock, bt_peer_t *peers, uint8_t type, uint32_t seq_ack, uint8_t *payload, uint32_t len, packet *pkt);
 void do_send_packet(int sock, bt_peer_t *peers, packet *pkt);
 void process_packet(uint8_t *msg, struct sockaddr_in *from, bt_config_t *config, chunk_table_t cktbl, chunk_array_t *ckarr, get_info_t *getinfo);
 void process_whohas(uint8_t *payload, uint16_t len, int sock, struct sockaddr_in *from, chunk_table_t cktbl);

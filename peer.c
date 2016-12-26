@@ -12,16 +12,19 @@
  */
 
 #include <sys/types.h>
+#include <sys/time.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
 #include "debug.h"
 #include "spiffy.h"
 #include "bt_parse.h"
 #include "input_buffer.h"
+#include "chunk.h"
 #include "chunk_helper.h"
 #include "packet.h"
 
@@ -103,19 +106,18 @@ void process_get_cmd(bt_config_t *config, chunk_array_t *ckarr)
     for(i = 0; i < num; ++i)
         memcpy(payload + 4 + HASH_BINARY_SIZE * i, (ckarr->arr)[i].row.hash, HASH_BINARY_SIZE);
 
-    send_packet(config->sock, config->peers, PKT_WHOHAS, 0, payload, 4 + HASH_BINARY_SIZE * num);
+    send_packet(config->sock, config->peers, PKT_WHOHAS, 0, payload, 4 + HASH_BINARY_SIZE * num, NULL);
 
     free(payload);
 }
 
 void peer_run(bt_config_t *config)
 {
-    #include "chunk.h"
-
-    int sock, nready;
+    int i, sock, nready;
     struct sockaddr_in myaddr;
     fd_set allset, rset;
     struct user_iobuf *userbuf;
+    struct timeval timeout;
     chunk_table_t cktbl;
     chunk_array_t ckarr;
     get_info_t getinfo;
@@ -129,10 +131,11 @@ void peer_run(bt_config_t *config)
     getinfo.start = 0;
     getinfo.conn_num = 0;
     getinfo.peer_num = 0;
-    getinfo.bitmap = NULL;
+    getinfo.cgest = NULL;
     for(bt_peer_t *peer = config->peers; peer != NULL; peer = peer->next, ++getinfo.peer_num);
-    getinfo.bitmap = (uint32_t *)malloc(sizeof(uint32_t) * ((getinfo.peer_num / 32) + 1));
-    BM_CLR(getinfo.bitmap, getinfo.peer_num);
+    getinfo.cgest = (congestion_t **)malloc(sizeof(congestion_t *) * getinfo.peer_num);
+    for(i = 0; i < getinfo.peer_num; ++i)
+        getinfo.cgest[i] = NULL;
 
     if ((userbuf = create_userbuf()) == NULL)
     {
@@ -161,6 +164,9 @@ void peer_run(bt_config_t *config)
 
     spiffy_init(config->identity, (struct sockaddr *)&myaddr, sizeof(myaddr));
 
+    timeout.tv_sec = TIMEOUT;
+    timeout.tv_usec = 0;
+
     FD_ZERO(&allset);
     FD_SET(STDIN_FILENO, &allset);
     FD_SET(sock, &allset);
@@ -169,9 +175,11 @@ void peer_run(bt_config_t *config)
     {
         rset = allset;
     
-        nready = select(sock + 1, &rset, NULL, NULL, NULL);
+        nready = select(sock + 1, &rset, NULL, NULL, &timeout);
     
-        if (nready > 0)
+        if(nready == 0 && getinfo.start == 1)
+            DPRINTF(DEBUG_PROCESSES, "TODO: Retransmit\n");
+        else if (nready > 0)
         {
             if (FD_ISSET(sock, &rset))
 	            process_inbound_udp(sock, config, cktbl, &ckarr, &getinfo);
@@ -189,5 +197,5 @@ void peer_run(bt_config_t *config)
     free(userbuf);
     free_cktbl(cktbl);
     free_ckarr(&ckarr);
-    free(getinfo.bitmap);
+    free(getinfo.cgest);
 }
