@@ -41,7 +41,7 @@ typedef struct {
 } chunk_info_t;
 
 typedef struct {
-    int num;
+    uint32_t num;
     chunk_info_t *arr;
 } chunk_array_t;
 

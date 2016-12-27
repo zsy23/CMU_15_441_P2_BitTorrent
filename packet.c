@@ -24,7 +24,7 @@ const char *pkt_type_strings[] = {
     0,
 };
 
-void send_packet(int sock, bt_peer_t *peers, uint8_t type, uint32_t seq_ack, uint8_t *payload, uint32_t len, packet *pkt_buf)
+void send_packet(int sock, bt_peer_t *peers, uint8_t type, uint32_t seq_ack, uint8_t *payload, uint32_t len, packet **pkt_buf)
 {
     packet *pkt = (packet *)malloc(sizeof(packet) + len);
 
@@ -49,7 +49,7 @@ void send_packet(int sock, bt_peer_t *peers, uint8_t type, uint32_t seq_ack, uin
     do_send_packet(sock, peers, pkt);
 
     if(pkt_buf != NULL)
-        pkt_buf = pkt;
+        *pkt_buf = pkt;
     else
         free(pkt);
 }
@@ -136,7 +136,7 @@ void process_whohas(uint8_t *payload, uint16_t len, int sock, struct sockaddr_in
             cur = cur->next;
         }
 
-        send_packet(sock, &peer, PKT_IHAVE, 0, payload_send, 4 + HASH_BINARY_SIZE * num_send, NULL);
+        send_ihave(sock, &peer, payload_send, 4 + HASH_BINARY_SIZE * num_send);
 
         free(payload_send);
         free_entry(head);
@@ -148,7 +148,7 @@ void process_ihave(uint8_t *payload, uint16_t len, struct sockaddr_in *from, bt_
     uint8_t i = 0, j = 0, num = payload[0], num_info = ckarr->num, left = payload[0];
     chunk_row_t *rows = (chunk_row_t *)malloc(sizeof(chunk_row_t) * num);
     char ascii[HASH_ASCII_SIZE + 1] = { 0 };
-    bt_peer_t *peer = NULL;
+    bt_peer_t *peer = NULL, *p = NULL;
 
     assert(num > 0);
     assert(len == (4 + HASH_BINARY_SIZE * num));
@@ -171,7 +171,22 @@ void process_ihave(uint8_t *payload, uint16_t len, struct sockaddr_in *from, bt_
                     bt_peer_t *peer = (bt_peer_t *)malloc(sizeof(bt_peer_t));
                     peer->id = bt_peer_id(config, from);
                     peer->addr = *from;
-                    peer->next = (ckarr->arr)[i].candidates;
+                    peer->next = NULL;
+                    if(ckarr->arr[i].candidates == NULL)
+                        ckarr->arr[i].candidates = peer;
+                    else
+                    {
+                        p = ckarr->arr[i].candidates;
+                        do {
+                            if(strcmp(inet_ntoa(p->addr.sin_addr), inet_ntoa(peer->addr.sin_addr)) == 0 && ntohs(p->addr.sin_port) == ntohs(peer->addr.sin_port))
+                            {
+                                peer->id = 0;
+                                break;
+                            }
+                        } while(p->next != NULL);
+                        if(peer->id != 0)
+                            p->next = peer;
+                    }
                     (ckarr->arr)[i].candidates = peer;
 
                     rows[j].id = 0;
@@ -183,12 +198,9 @@ void process_ihave(uint8_t *payload, uint16_t len, struct sockaddr_in *from, bt_
 
     free(rows);
 
-    if(getinfo->start == 0)
-    {
-        for(i = 0; i < num_info; ++i)
-            if((ckarr->arr)[i].candidates == NULL)
-                return;
-    }
+    for(i = 0; i < num_info; ++i)
+        if((ckarr->arr)[i].candidates == NULL)
+            return;
     
     DPRINTF(DEBUG_PROCESSES, "============================================\n");
     DPRINTF(DEBUG_PROCESSES, "Receive IHAVE for all chunks\n");
@@ -208,11 +220,7 @@ void process_ihave(uint8_t *payload, uint16_t len, struct sockaddr_in *from, bt_
         }
     }
     
-    if(getinfo->start == 0)
-    {
-        getinfo->start = 1;
-        send_get(config, ckarr, getinfo);
-    }
+    send_get(config, ckarr, getinfo);
 }
 
 void process_get(uint8_t *payload, uint16_t len, struct sockaddr_in *from)
@@ -220,6 +228,79 @@ void process_get(uint8_t *payload, uint16_t len, struct sockaddr_in *from)
     assert(len == HASH_BINARY_SIZE);
 
             
+}
+
+void send_whohas(int sock, bt_peer_t *peers, chunk_array_t *ckarr, list(uint32_t) *list)
+{
+    uint32_t i = 0, j = 0, tot_num = 0;
+    uint16_t cum_num = 0, ck_num = (UDP_SIZE - HDR_SIZE - 4) / HASH_BINARY_SIZE;
+    list(uint32_t) *tmp = NULL;
+    uint8_t *payload = NULL;
+    
+    if(list == NULL)
+        tot_num = ckarr->num;
+    else
+    {
+        tmp = list;
+        while(tmp != NULL)
+        {
+            ++tot_num;
+            tmp = tmp->next;
+        }
+    }
+
+    cum_num = ck_num < tot_num ? ck_num : tot_num;
+    payload = (uint8_t *)malloc(sizeof(uint8_t) * (4 + HASH_BINARY_SIZE * cum_num));
+    bzero(payload, sizeof(uint8_t) * (4 + HASH_BINARY_SIZE * cum_num));
+
+    payload[0] = cum_num;
+
+    if(list == NULL)
+        for(i = 0, j = 0; i < tot_num; ++i)
+        {
+            if(i == cum_num)
+            {
+                send_packet(sock, peers, PKT_WHOHAS, 0, payload, 4 + HASH_BINARY_SIZE * payload[0], NULL);
+                bzero(payload, sizeof(uint8_t) * (4 + HASH_BINARY_SIZE * cum_num));
+                payload[0] = ck_num < (tot_num - cum_num) ? ck_num : (tot_num - cum_num);
+                cum_num += payload[0];
+                j = 0;
+            }
+
+            memcpy(payload + 4 + HASH_BINARY_SIZE * j, (ckarr->arr)[i].row.hash, HASH_BINARY_SIZE);
+
+            ++j;
+        }
+    else
+    {
+        i = j = 0;
+        tmp = list;
+        while(tmp != NULL)
+        {
+            if(i == cum_num)
+            {
+                send_packet(sock, peers, PKT_WHOHAS, 0, payload, 4 + HASH_BINARY_SIZE * payload[0], NULL);
+                bzero(payload, sizeof(uint8_t) * (4 + HASH_BINARY_SIZE * cum_num));
+                payload[0] = ck_num < (tot_num - cum_num) ? ck_num : (tot_num - cum_num);
+                cum_num += payload[0];
+                j = 0;
+            }
+
+            memcpy(payload + 4 + HASH_BINARY_SIZE * j, (ckarr->arr)[tmp->data].row.hash, HASH_BINARY_SIZE);
+
+            ++i, ++j;
+            tmp = tmp->next;
+        }
+    }
+
+    send_packet(sock, peers, PKT_WHOHAS, 0, payload, 4 + HASH_BINARY_SIZE * payload[0], NULL);
+
+    free(payload);
+}
+
+void send_ihave(int sock, bt_peer_t *peers, uint8_t *payload, uint32_t len)
+{
+    send_packet(sock, peers, PKT_IHAVE, 0, payload, len, NULL);
 }
 
 void send_get(bt_config_t *config, chunk_array_t *ckarr, get_info_t *getinfo)
@@ -232,28 +313,28 @@ void send_get(bt_config_t *config, chunk_array_t *ckarr, get_info_t *getinfo)
         for(i = 0; i < ckarr->num; ++i)
             if(ckarr->arr[i].state == CHUNK_UNGOT)
             {
-                for(peer = ckarr->arr[i].candidates; peer != NULL && getinfo->cgest[peer->id - 1] != NULL; peer = peer->next);
+                for(peer = ckarr->arr[i].candidates; peer != NULL && getinfo->cgest[peer->id] != NULL; peer = peer->next);
                 if(peer != NULL)
                 {
-                    packet pkt;
                     uint8_t payload[HASH_BINARY_SIZE]; 
                     bt_peer_t p;
 
-                    getinfo->cgest[peer->id - 1] = (congestion_t *)malloc(sizeof(congestion_t));
-                    getinfo->cgest[peer->id - 1]->win_size = WIN_SIZE;
-                    getinfo->cgest[peer->id - 1]->seq = 0;
-                    getinfo->cgest[peer->id - 1]->ack = 0;
-                    getinfo->cgest[peer->id - 1]->dup = 0;
-                    getinfo->cgest[peer->id - 1]->timeout = time(NULL);
-                    getinfo->cgest[peer->id - 1]->re_times = 0;
-                    getinfo->cgest[peer->id - 1]->pre_pkt = &pkt;
+                    getinfo->cgest[peer->id] = (congestion_t *)malloc(sizeof(congestion_t));
+                    getinfo->cgest[peer->id]->win_size = WIN_SIZE;
+                    getinfo->cgest[peer->id]->seq = 0;
+                    getinfo->cgest[peer->id]->ack = 0;
+                    getinfo->cgest[peer->id]->dup = 0;
+                    getinfo->cgest[peer->id]->timeout = time(NULL) + TIMEOUT;
+                    getinfo->cgest[peer->id]->re_times = 0;
+                    getinfo->cgest[peer->id]->ckid = i;
+                    getinfo->cgest[peer->id]->pre_pkt = NULL;
 
                     memcpy(payload, ckarr->arr[i].row.hash, HASH_BINARY_SIZE);
                     p.id = peer->id;
                     p.addr = peer->addr;
                     p.next = NULL;
 
-                    send_packet(config->sock, &p, PKT_GET, 0, payload, HASH_BINARY_SIZE, getinfo->cgest[peer->id - 1]->pre_pkt);
+                    send_packet(config->sock, &p, PKT_GET, 0, payload, HASH_BINARY_SIZE, &getinfo->cgest[peer->id]->pre_pkt);
 
                     ckarr->arr[i].state = CHUNK_PENDING;
 
@@ -265,6 +346,69 @@ void send_get(bt_config_t *config, chunk_array_t *ckarr, get_info_t *getinfo)
         if(i >= ckarr->num)
             break;
     }
+}
+
+void check_retransmit(get_info_t *getinfo, bt_config_t *config, chunk_array_t *ckarr)
+{
+    uint16_t i = 0, j = 0;
+    bt_peer_t *pp = NULL, *tmpp = NULL;
+    bt_peer_t p;
+    list(uint32_t) list;
+
+    for(i = 1, j = 0; i < (getinfo->peer_num + 1) && j < getinfo->conn_num; ++i)
+        if(getinfo->cgest[i] != NULL)
+        {
+            if(time(NULL) >= getinfo->cgest[i]->timeout)
+            {
+                pp = bt_peer_info(config, i);
+                p.id = pp->id;
+                p.addr = pp->addr;
+                p.next = NULL;
+
+                if(getinfo->cgest[i]->re_times < RETRANSMIT_TIMES)
+                {
+                    do_send_packet(config->sock, &p, getinfo->cgest[i]->pre_pkt);
+                    getinfo->cgest[i]->timeout = time(NULL) + TIMEOUT;
+                    ++getinfo->cgest[i]->re_times;
+                }
+                else if(getinfo->cgest[i]->re_times == RETRANSMIT_TIMES)
+                {
+                    list.data = getinfo->cgest[i]->ckid;
+                    list.next = NULL;
+
+                    ckarr->arr[list.data].state = CHUNK_UNGOT;
+                    
+                    pp = ckarr->arr[list.data].candidates;
+                    tmpp = NULL;
+                    while(pp != NULL)
+                    {
+                        if(strcmp(inet_ntoa(pp->addr.sin_addr), inet_ntoa(p.addr.sin_addr)) == 0 && ntohs(pp->addr.sin_port) == ntohs(p.addr.sin_port))
+                        {
+                            if(tmpp == NULL)
+                                ckarr->arr[list.data].candidates = pp->next;
+                            else
+                                tmpp->next = pp->next;
+
+                            break;
+                        }
+
+                        tmpp = pp;
+                        pp = pp->next;
+                    }
+
+                    send_whohas(config->sock, config->peers, ckarr, &list);
+
+                    free(getinfo->cgest[i]->pre_pkt);
+                    free(getinfo->cgest[i]);
+                    getinfo->cgest[i] = NULL;
+                    --getinfo->conn_num;
+
+                    continue;
+                }
+            }
+
+            ++j;
+        }
 }
 
 void print_packet(int type, const struct sockaddr_in *addr, packet *pkt)

@@ -97,18 +97,7 @@ void handle_user_input(char *line, void *cbdata)
 
 void process_get_cmd(bt_config_t *config, chunk_array_t *ckarr)
 {
-    uint8_t i = 0, num = ckarr->num;
-    uint8_t *payload = (uint8_t *)malloc(sizeof(uint8_t) * (4 + HASH_BINARY_SIZE * num));
-
-    bzero(payload, sizeof(payload));
-
-    payload[0] = num;
-    for(i = 0; i < num; ++i)
-        memcpy(payload + 4 + HASH_BINARY_SIZE * i, (ckarr->arr)[i].row.hash, HASH_BINARY_SIZE);
-
-    send_packet(config->sock, config->peers, PKT_WHOHAS, 0, payload, 4 + HASH_BINARY_SIZE * num, NULL);
-
-    free(payload);
+    send_whohas(config->sock, config->peers, ckarr, NULL);
 }
 
 void peer_run(bt_config_t *config)
@@ -133,8 +122,8 @@ void peer_run(bt_config_t *config)
     getinfo.peer_num = 0;
     getinfo.cgest = NULL;
     for(bt_peer_t *peer = config->peers; peer != NULL; peer = peer->next, ++getinfo.peer_num);
-    getinfo.cgest = (congestion_t **)malloc(sizeof(congestion_t *) * getinfo.peer_num);
-    for(i = 0; i < getinfo.peer_num; ++i)
+    getinfo.cgest = (congestion_t **)malloc(sizeof(congestion_t *) * (getinfo.peer_num + 1));
+    for(i = 0; i < getinfo.peer_num + 1; ++i)
         getinfo.cgest[i] = NULL;
 
     if ((userbuf = create_userbuf()) == NULL)
@@ -177,8 +166,8 @@ void peer_run(bt_config_t *config)
     
         nready = select(sock + 1, &rset, NULL, NULL, &timeout);
     
-        if(nready == 0 && getinfo.start == 1)
-            DPRINTF(DEBUG_PROCESSES, "TODO: Retransmit\n");
+        if(nready == 0 && getinfo.conn_num > 0)
+            check_retransmit(&getinfo, config, &ckarr);
         else if (nready > 0)
         {
             if (FD_ISSET(sock, &rset))
@@ -190,6 +179,8 @@ void peer_run(bt_config_t *config)
                 build_get_ckarr(config->get_chunk_file, &ckarr);
                 process_get_cmd(config, &ckarr);
             }
+
+            check_retransmit(&getinfo, config, &ckarr);
         }
     }
 
