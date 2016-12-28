@@ -9,6 +9,7 @@
 #include "spiffy.h"
 #include "chunk.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
@@ -233,10 +234,17 @@ void process_get(bt_config_t *config, chunk_table_t cktbl, get_info_t *getinfo, 
         return;
     }
 
+    FILE *fp = NULL;
     int id = bt_peer_id(config, from);
+    uint8_t payload_send[UDP_SIZE - HDR_SIZE];
+    bt_peer_t peer;
 
     if(id >= 0)
     {
+        peer.addr = *from;
+        peer.id = id;
+        peer.next = NULL;
+
         if(getinfo->cli_info[id].used == 0)
         {
             getinfo->cli_info[id].used = 1;
@@ -251,6 +259,26 @@ void process_get(bt_config_t *config, chunk_table_t cktbl, get_info_t *getinfo, 
             fprintf(stderr, "GET invalid chunk hash\n");
             return;
         }
+
+        fp = fopen(config->share_file, "r");
+        if(fp == NULL)
+        {
+            DPRINTF(DEBUG_PROCESSES, "Error open master data file\n");
+            return;
+        }
+
+        while(getinfo->cli_info[id].seq - getinfo->cli_info[id].ack < getinfo->cli_info[id].win_size)
+        {
+            fseek(fp, CHUNK_SIZE * getinfo->cli_info[id].ckid + (UDP_SIZE - HDR_SIZE) * getinfo->cli_info[id].seq, SEEK_SET);
+
+            fread(payload_send, 1, UDP_SIZE - HDR_SIZE, fp);
+
+            ++getinfo->cli_info[id].seq;
+
+            send_data(config->sock, &peer, getinfo->cli_info[id].seq, payload_send, UDP_SIZE - HDR_SIZE);
+        }
+
+        fclose(fp);
     }
 }
 
@@ -361,6 +389,11 @@ void send_get(bt_config_t *config, chunk_array_t *ckarr, get_info_t *getinfo)
                     break;
             }
         }
+}
+
+void send_data(int sock, bt_peer_t *peers, uint32_t seq, uint8_t *payload, uint32_t len)
+{
+    send_packet(sock, peers, PKT_DATA, seq, payload, len, NULL);
 }
 
 void check_retransmit(get_info_t *getinfo, bt_config_t *config, chunk_array_t *ckarr)

@@ -18,8 +18,10 @@
 #define TIMEOUT 5
 #define RETRANSMIT_TIMES 5
 
+#define CHUNK_SIZE (512 * 1024)
 #define UDP_SIZE 1500
 #define HDR_SIZE 16
+
 #define MAGIC 15441
 #define VERSION 1
 
@@ -104,6 +106,7 @@ void process_get(bt_config_t *config, chunk_table_t cktbl, get_info_t *getinfo, 
 void send_whohas(int sock, bt_peer_t *peers, chunk_array_t *ckarr, list(uint32_t) *list);
 void send_ihave(int sock, bt_peer_t *peers, uint8_t *payload, uint32_t len);
 void send_get(bt_config_t *config, chunk_array_t *ckarr, get_info_t *getinfo);
+void send_data(int sock, bt_peer_t *peers, uint32_t seq, uint8_t *payload, uint32_t len);
 void check_retransmit(get_info_t *getinfo, bt_config_t *config, chunk_array_t *ckarr);
 void print_packet(int type, const struct sockaddr_in *addr, packet *pkt);
 
