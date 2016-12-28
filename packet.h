@@ -70,20 +70,29 @@ typedef struct {
 } __attribute__((__packed__)) packet;
 
 typedef struct {
-    uint8_t win_size;
-    uint32_t seq, ack;
-    uint8_t dup;
+    uint8_t used;
+    uint32_t ack;
     time_t timeout;
     uint8_t re_times;
+    uint32_t ckarr_id;
+    packet *pre_pkt;
+} server_info_t;
+
+typedef struct {
+    uint8_t used;
+    uint32_t win_size;
     uint32_t ckid;
-    packet *pre_pkt; 
-} congestion_t;
+    uint32_t seq, ack;
+    time_t timeout;
+    uint8_t re_times;
+} client_info_t;
 
 typedef struct {
     uint8_t start;
-    uint16_t conn_num;
+    uint16_t srv_conn, cli_conn;
     uint16_t peer_num;
-    congestion_t **cgest;
+    server_info_t *srv_info;
+    client_info_t *cli_info;
 } get_info_t;
 
 void send_packet(int sock, bt_peer_t *peers, uint8_t type, uint32_t seq_ack, uint8_t *payload, uint32_t len, packet **pkt);
@@ -91,7 +100,7 @@ void do_send_packet(int sock, bt_peer_t *peers, packet *pkt);
 void process_packet(uint8_t *msg, struct sockaddr_in *from, bt_config_t *config, chunk_table_t cktbl, chunk_array_t *ckarr, get_info_t *getinfo);
 void process_whohas(uint8_t *payload, uint16_t len, int sock, struct sockaddr_in *from, chunk_table_t cktbl);
 void process_ihave(uint8_t *payload, uint16_t len, struct sockaddr_in *from, bt_config_t *config, chunk_array_t *ckarr, get_info_t *getinfo);
-void process_get(uint8_t *payload, uint16_t len, struct sockaddr_in *from);
+void process_get(bt_config_t *config, chunk_table_t cktbl, get_info_t *getinfo, uint8_t *payload, uint16_t len, struct sockaddr_in *from);
 void send_whohas(int sock, bt_peer_t *peers, chunk_array_t *ckarr, list(uint32_t) *list);
 void send_ihave(int sock, bt_peer_t *peers, uint8_t *payload, uint32_t len);
 void send_get(bt_config_t *config, chunk_array_t *ckarr, get_info_t *getinfo);

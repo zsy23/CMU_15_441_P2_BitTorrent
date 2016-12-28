@@ -88,7 +88,7 @@ void process_packet(uint8_t *msg, struct sockaddr_in *from, bt_config_t *config,
             process_ihave(pkt->payload, ntohs(pkt->tot_len) - HDR_SIZE, from, config, ckarr, getinfo);
             break;
         case PKT_GET:
-            process_get(pkt->payload, ntohs(pkt->tot_len) - HDR_SIZE, from);
+            process_get(config, cktbl, getinfo, pkt->payload, ntohs(pkt->tot_len) - HDR_SIZE, from);
             break;
         default:
             break;
@@ -223,11 +223,35 @@ void process_ihave(uint8_t *payload, uint16_t len, struct sockaddr_in *from, bt_
     send_get(config, ckarr, getinfo);
 }
 
-void process_get(uint8_t *payload, uint16_t len, struct sockaddr_in *from)
+void process_get(bt_config_t *config, chunk_table_t cktbl, get_info_t *getinfo, uint8_t *payload, uint16_t len, struct sockaddr_in *from)
 {
     assert(len == HASH_BINARY_SIZE);
 
-            
+    if(getinfo->cli_conn >= config->max_conn)
+    {
+        DPRINTF(DEBUG_PROCESSES, "TODO: DENIED\n");
+        return;
+    }
+
+    int id = bt_peer_id(config, from);
+
+    if(id >= 0)
+    {
+        if(getinfo->cli_info[id].used == 0)
+        {
+            getinfo->cli_info[id].used = 1;
+
+            ++getinfo->cli_conn;
+        }
+
+        getinfo->cli_info[id].win_size = WIN_SIZE;
+        getinfo->cli_info[id].ckid = search_cktbl(cktbl, payload);
+        if(getinfo->cli_info[id].ckid == -1)
+        {
+            fprintf(stderr, "GET invalid chunk hash\n");
+            return;
+        }
+    }
 }
 
 void send_whohas(int sock, bt_peer_t *peers, chunk_array_t *ckarr, list(uint32_t) *list)
@@ -308,44 +332,35 @@ void send_get(bt_config_t *config, chunk_array_t *ckarr, get_info_t *getinfo)
     int i;
     bt_peer_t *peer = NULL;
 
-    while(getinfo->conn_num < config->max_conn)
-    {
-        for(i = 0; i < ckarr->num; ++i)
-            if(ckarr->arr[i].state == CHUNK_UNGOT)
+    for(i = 0; i < ckarr->num; ++i)
+        if(ckarr->arr[i].state == CHUNK_UNGOT)
+        {
+            for(peer = ckarr->arr[i].candidates; peer != NULL && getinfo->srv_info[peer->id].used == 1; peer = peer->next);
+
+            if(peer != NULL)
             {
-                for(peer = ckarr->arr[i].candidates; peer != NULL && getinfo->cgest[peer->id] != NULL; peer = peer->next);
-                if(peer != NULL)
-                {
-                    uint8_t payload[HASH_BINARY_SIZE]; 
-                    bt_peer_t p;
+                uint8_t payload[HASH_BINARY_SIZE]; 
+                bt_peer_t p;
+                packet pkt;
 
-                    getinfo->cgest[peer->id] = (congestion_t *)malloc(sizeof(congestion_t));
-                    getinfo->cgest[peer->id]->win_size = WIN_SIZE;
-                    getinfo->cgest[peer->id]->seq = 0;
-                    getinfo->cgest[peer->id]->ack = 0;
-                    getinfo->cgest[peer->id]->dup = 0;
-                    getinfo->cgest[peer->id]->timeout = time(NULL) + TIMEOUT;
-                    getinfo->cgest[peer->id]->re_times = 0;
-                    getinfo->cgest[peer->id]->ckid = i;
-                    getinfo->cgest[peer->id]->pre_pkt = NULL;
+                getinfo->srv_info[peer->id].used = 1;
+                getinfo->srv_info[peer->id].timeout = time(NULL) + TIMEOUT;
+                getinfo->srv_info[peer->id].ckarr_id = i;
+                getinfo->srv_info[peer->id].pre_pkt = &pkt;
 
-                    memcpy(payload, ckarr->arr[i].row.hash, HASH_BINARY_SIZE);
-                    p.id = peer->id;
-                    p.addr = peer->addr;
-                    p.next = NULL;
+                memcpy(payload, ckarr->arr[i].row.hash, HASH_BINARY_SIZE);
+                p.id = peer->id;
+                p.addr = peer->addr;
+                p.next = NULL;
 
-                    send_packet(config->sock, &p, PKT_GET, 0, payload, HASH_BINARY_SIZE, &getinfo->cgest[peer->id]->pre_pkt);
+                send_packet(config->sock, &p, PKT_GET, 0, payload, HASH_BINARY_SIZE, &getinfo->srv_info[peer->id].pre_pkt);
 
-                    ckarr->arr[i].state = CHUNK_PENDING;
+                ckarr->arr[i].state = CHUNK_PENDING;
 
-                    ++getinfo->conn_num;
+                if(++getinfo->srv_conn >= config->max_conn)
                     break;
-                }
             }
-
-        if(i >= ckarr->num)
-            break;
-    }
+        }
 }
 
 void check_retransmit(get_info_t *getinfo, bt_config_t *config, chunk_array_t *ckarr)
@@ -355,25 +370,25 @@ void check_retransmit(get_info_t *getinfo, bt_config_t *config, chunk_array_t *c
     bt_peer_t p;
     list(uint32_t) list;
 
-    for(i = 1, j = 0; i < (getinfo->peer_num + 1) && j < getinfo->conn_num; ++i)
-        if(getinfo->cgest[i] != NULL)
+    for(i = 1, j = 0; i < (getinfo->peer_num + 1) && j < getinfo->srv_conn; ++i)
+        if(getinfo->srv_info[i].used == 1)
         {
-            if(time(NULL) >= getinfo->cgest[i]->timeout)
+            if(time(NULL) >= getinfo->srv_info[i].timeout)
             {
                 pp = bt_peer_info(config, i);
                 p.id = pp->id;
                 p.addr = pp->addr;
                 p.next = NULL;
 
-                if(getinfo->cgest[i]->re_times < RETRANSMIT_TIMES)
+                if(getinfo->srv_info[i].re_times < RETRANSMIT_TIMES)
                 {
-                    do_send_packet(config->sock, &p, getinfo->cgest[i]->pre_pkt);
-                    getinfo->cgest[i]->timeout = time(NULL) + TIMEOUT;
-                    ++getinfo->cgest[i]->re_times;
+                    do_send_packet(config->sock, &p, getinfo->srv_info[i].pre_pkt);
+                    getinfo->srv_info[i].timeout = time(NULL) + TIMEOUT;
+                    ++getinfo->srv_info[i].re_times;
                 }
-                else if(getinfo->cgest[i]->re_times == RETRANSMIT_TIMES)
+                else if(getinfo->srv_info[i].re_times == RETRANSMIT_TIMES)
                 {
-                    list.data = getinfo->cgest[i]->ckid;
+                    list.data = getinfo->srv_info[i].ckarr_id;
                     list.next = NULL;
 
                     ckarr->arr[list.data].state = CHUNK_UNGOT;
@@ -398,10 +413,9 @@ void check_retransmit(get_info_t *getinfo, bt_config_t *config, chunk_array_t *c
 
                     send_whohas(config->sock, config->peers, ckarr, &list);
 
-                    free(getinfo->cgest[i]->pre_pkt);
-                    free(getinfo->cgest[i]);
-                    getinfo->cgest[i] = NULL;
-                    --getinfo->conn_num;
+                    free(getinfo->srv_info[i].pre_pkt);
+                    bzero(&getinfo->srv_info[i], sizeof(server_info_t));
+                    --getinfo->srv_conn;
 
                     continue;
                 }

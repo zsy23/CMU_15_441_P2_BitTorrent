@@ -102,7 +102,7 @@ void process_get_cmd(bt_config_t *config, chunk_array_t *ckarr)
 
 void peer_run(bt_config_t *config)
 {
-    int i, sock, nready;
+    int sock, nready;
     struct sockaddr_in myaddr;
     fd_set allset, rset;
     struct user_iobuf *userbuf;
@@ -118,13 +118,13 @@ void peer_run(bt_config_t *config)
     ckarr.arr = NULL;
 
     getinfo.start = 0;
-    getinfo.conn_num = 0;
+    getinfo.srv_conn = getinfo.cli_conn = 0;
     getinfo.peer_num = 0;
-    getinfo.cgest = NULL;
     for(bt_peer_t *peer = config->peers; peer != NULL; peer = peer->next, ++getinfo.peer_num);
-    getinfo.cgest = (congestion_t **)malloc(sizeof(congestion_t *) * (getinfo.peer_num + 1));
-    for(i = 0; i < getinfo.peer_num + 1; ++i)
-        getinfo.cgest[i] = NULL;
+    getinfo.srv_info = (server_info_t *)malloc(sizeof(server_info_t) * (getinfo.peer_num + 1));
+    bzero(getinfo.srv_info, sizeof(server_info_t) * (getinfo.peer_num + 1));
+    getinfo.cli_info = (client_info_t *)malloc(sizeof(client_info_t) * (getinfo.peer_num + 1));
+    bzero(getinfo.cli_info, sizeof(client_info_t) * (getinfo.peer_num + 1));
 
     if ((userbuf = create_userbuf()) == NULL)
     {
@@ -166,7 +166,7 @@ void peer_run(bt_config_t *config)
     
         nready = select(sock + 1, &rset, NULL, NULL, &timeout);
     
-        if(nready == 0 && getinfo.conn_num > 0)
+        if(nready == 0 && (getinfo.srv_conn > 0 || getinfo.cli_conn > 0))
             check_retransmit(&getinfo, config, &ckarr);
         else if (nready > 0)
         {
@@ -188,5 +188,6 @@ void peer_run(bt_config_t *config)
     free(userbuf);
     free_cktbl(cktbl);
     free_ckarr(&ckarr);
-    free(getinfo.cgest);
+    free(getinfo.srv_info);
+    free(getinfo.cli_info);
 }
