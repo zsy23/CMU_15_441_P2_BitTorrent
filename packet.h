@@ -85,6 +85,7 @@ typedef struct {
     uint32_t win_size;
     uint32_t ckid;
     uint32_t seq, ack;
+    uint8_t dup;
     time_t timeout;
     uint8_t re_times;
 } client_info_t;
@@ -97,16 +98,22 @@ typedef struct {
     client_info_t *cli_info;
 } get_info_t;
 
-void send_packet(int sock, bt_peer_t *peers, uint8_t type, uint32_t seq_ack, uint8_t *payload, uint32_t len, packet **pkt);
+
 void do_send_packet(int sock, bt_peer_t *peers, packet *pkt);
+void send_packet(int sock, bt_peer_t *peers, uint8_t type, uint32_t seq_ack, uint8_t *payload, uint32_t len, packet **pkt);
+void send_whohas(int sock, bt_peer_t *peers, chunk_array_t *ckarr, list(uint32_t) *list);
+void send_ihave(int sock, bt_peer_t *peers, uint8_t *payload, uint32_t len);
+void send_get(bt_config_t *config, chunk_array_t *ckarr, get_info_t *getinfo);
+void send_data(bt_config_t *config, bt_peer_t *peers, client_info_t *cli);
+void send_ack(int sock, bt_peer_t *peers, uint32_t ack);
+
 void process_packet(uint8_t *msg, struct sockaddr_in *from, bt_config_t *config, chunk_table_t cktbl, chunk_array_t *ckarr, get_info_t *getinfo);
 void process_whohas(uint8_t *payload, uint16_t len, int sock, struct sockaddr_in *from, chunk_table_t cktbl);
 void process_ihave(uint8_t *payload, uint16_t len, struct sockaddr_in *from, bt_config_t *config, chunk_array_t *ckarr, get_info_t *getinfo);
 void process_get(bt_config_t *config, chunk_table_t cktbl, get_info_t *getinfo, uint8_t *payload, uint16_t len, struct sockaddr_in *from);
-void send_whohas(int sock, bt_peer_t *peers, chunk_array_t *ckarr, list(uint32_t) *list);
-void send_ihave(int sock, bt_peer_t *peers, uint8_t *payload, uint32_t len);
-void send_get(bt_config_t *config, chunk_array_t *ckarr, get_info_t *getinfo);
-void send_data(int sock, bt_peer_t *peers, uint32_t seq, uint8_t *payload, uint32_t len);
+void process_data(uint32_t seq, uint8_t *payload, uint16_t len, struct sockaddr_in *from, bt_config_t *config, get_info_t *getinfo, chunk_array_t *ckarr);
+void process_ack(uint32_t ack, struct sockaddr_in *from, bt_config_t *config, get_info_t *getinfo);
+
 void check_retransmit(get_info_t *getinfo, bt_config_t *config, chunk_array_t *ckarr);
 void print_packet(int type, const struct sockaddr_in *addr, packet *pkt);
 
