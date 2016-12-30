@@ -13,6 +13,9 @@
 #include <stdio.h>
 #include <netinet/in.h>
 
+#define TMP_FOLDER "./.tmp"
+#define CHUNK_FILENAME_SIZE 128
+
 #define LINE_SIZE 256
 #define HASH_ASCII_SIZE 40
 #define HASH_BINARY_SIZE (HASH_ASCII_SIZE / 2)
@@ -38,6 +41,7 @@ typedef struct {
     chunk_row_t row;
     bt_peer_t *candidates;
     chunk_state state;
+    char ck_fn[CHUNK_FILENAME_SIZE];
 } chunk_info_t;
 
 typedef struct {
@@ -53,6 +57,8 @@ int search_cktbl(const chunk_table_t cktbl, uint8_t *hash);
 int check_has_chunk(const char *has_chunk, const char *master_chunk);
 void build_has_cktbl(const char *has_file, chunk_table_t cktbl);
 void build_get_ckarr(const char *get_file, chunk_array_t *ckarr);
+int check_chunk(const char *ck_fn, int id, chunk_array_t *ckarr);
+void assemble_chunk(const char *output, chunk_array_t *ckarr);
 void free_entry(chunk_entry_t *head);
 void free_cktbl(chunk_table_t cktbl);
 void free_ckarr(chunk_array_t *ckarr);

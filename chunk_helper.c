@@ -8,6 +8,7 @@
 #include "chunk_helper.h"
 #include "super_fast_hash.h"
 #include "chunk.h"
+#include "debug.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -135,13 +136,75 @@ void build_get_ckarr(const char *get_file, chunk_array_t *ckarr)
     {
         assert(cur != NULL);
 
-        (ckarr->arr)[i].row = cur->row;
-        (ckarr->arr)[i].candidates = NULL;
-        (ckarr->arr)[i].state = CHUNK_UNGOT;
+        ckarr->arr[i].row = cur->row;
+        ckarr->arr[i].candidates = NULL;
+        ckarr->arr[i].state = CHUNK_UNGOT;
+        bzero(ckarr->arr[i].ck_fn, CHUNK_FILENAME_SIZE);
         cur = cur->next;
     }
 
     free_entry(head);
+}
+
+int check_chunk(const char *ck_fn, int id, chunk_array_t *ckarr)
+{
+    FILE *fp = NULL;
+    uint32_t flen = 0;
+    int num = 0;
+    uint8_t *hash = NULL;
+    char fn[CHUNK_FILENAME_SIZE] = { 0 };
+
+    sprintf(fn, "%s/%s", TMP_FOLDER, ck_fn);
+
+    fp = fopen(fn, "rb");
+    fseek(fp, 0, SEEK_END);
+    flen = ftell(fp);
+    if(flen != BT_CHUNK_SIZE)
+    {
+        DPRINTF(DEBUG_PROCESSES, "Chunk size not equals 512K\n");
+        ckarr->arr[id].state = CHUNK_UNGOT;
+        return 0;
+    }
+    
+    fseek(fp, 0, SEEK_SET);
+
+    hash = (uint8_t *)malloc(HASH_BINARY_SIZE * sizeof(uint8_t));
+    num = make_chunks(fp, &hash);
+    assert(num);
+
+    if(strncmp((const char *)hash, (const char *)ckarr->arr[id].row.hash, HASH_BINARY_SIZE) == 0)
+    {
+        ckarr->arr[id].state = CHUNK_GOT;
+        sprintf(ckarr->arr[id].ck_fn, "%s", ck_fn);
+        return 1; 
+    }
+    else
+    {
+        DPRINTF(DEBUG_PROCESSES, "Chunk hash not match\n");
+        ckarr->arr[id].state = CHUNK_UNGOT;
+        return 0;
+    }
+}
+
+void assemble_chunk(const char *output, chunk_array_t *ckarr)
+{
+    FILE *fout = NULL, *fin = NULL;
+    uint32_t i = 0, len = 0;
+    char buf[1024] = { 0 };
+
+    fout = fopen(output, "wb");
+
+    for(i = 0; i < ckarr->num; ++i)
+    {
+        fin = fopen(ckarr->arr[i].ck_fn, "rb");
+
+        while((len = fread(buf, 1, 1024, fin)) > 0)
+            fwrite(buf, 1, len, fout);
+
+        fclose(fin);
+    }
+
+    fclose(fout);
 }
 
 void free_entry(chunk_entry_t *head)
@@ -188,4 +251,6 @@ void free_ckarr(chunk_array_t *ckarr)
             free(tmp);
         }
     }
+
+    free(ckarr->arr);
 }

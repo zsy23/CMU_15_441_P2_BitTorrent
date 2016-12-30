@@ -13,12 +13,15 @@
 
 #include <sys/types.h>
 #include <sys/time.h>
-#include <arpa/inet.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
+#include <arpa/inet.h>
 #include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
+#include <unistd.h>
 
 #include "debug.h"
 #include "spiffy.h"
@@ -50,6 +53,19 @@ int main(int argc, char **argv)
     if (debug & DEBUG_INIT)
         bt_dump_config(&config);
 #endif
+
+    if(access(TMP_FOLDER, F_OK) == 0)
+    {
+        char cmd[128] = { 0 };
+        sprintf(cmd, "rm -rf %s", TMP_FOLDER);
+        system(cmd);
+    }
+        
+    if(mkdir(TMP_FOLDER, S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH) < 0)
+    {
+        DPRINTF(DEBUG_INIT, "Error mkdir: %s\n", strerror(errno));
+        return 1;
+    }
 
     // check if has_chunk consistent with master_chunk
     if(check_has_chunk(config.has_chunk_file, config.chunk_file) != 0)
@@ -118,6 +134,7 @@ void peer_run(bt_config_t *config)
     ckarr.arr = NULL;
 
     getinfo.start = 0;
+    getinfo.done = 0;
     getinfo.srv_conn = getinfo.cli_conn = 0;
     getinfo.peer_num = 0;
     for(bt_peer_t *peer = config->peers; peer != NULL; peer = peer->next, ++getinfo.peer_num);
@@ -162,13 +179,21 @@ void peer_run(bt_config_t *config)
   
     while (1)
     {
+        if(getinfo.done == 1)
+        {
+            assemble_chunk(config->output_file, &ckarr);
+
+            fprintf(stdout, "GOT %s\n", config->get_chunk_file);
+            free_ckarr(&ckarr);
+        }
+
         rset = allset;
     
-        nready = select(sock + 1, &rset, NULL, NULL, &timeout);
+        nready = select(sock + 1, &rset, NULL, NULL, NULL/*&timeout*/);
     
-        if(nready == 0 && (getinfo.srv_conn > 0 || getinfo.cli_conn > 0))
-            check_retransmit(&getinfo, config, &ckarr);
-        else if (nready > 0)
+//        if(nready == 0 && (getinfo.srv_conn > 0 || getinfo.cli_conn > 0))
+//            check_retransmit(&getinfo, config, &ckarr);
+        if (nready > 0)
         {
             if (FD_ISSET(sock, &rset))
 	            process_inbound_udp(sock, config, cktbl, &ckarr, &getinfo);
@@ -180,7 +205,7 @@ void peer_run(bt_config_t *config)
                 process_get_cmd(config, &ckarr);
             }
 
-            check_retransmit(&getinfo, config, &ckarr);
+//            check_retransmit(&getinfo, config, &ckarr);
         }
     }
 

@@ -184,31 +184,42 @@ void send_get(bt_config_t *config, chunk_array_t *ckarr, get_info_t *getinfo)
         }
 }
 
-void send_data(bt_config_t *config, bt_peer_t *peers, client_info_t *cli)
+int send_data(bt_config_t *config, bt_peer_t *peers, client_info_t *cli)
 {
     FILE *fp = NULL;
     uint8_t payload[UDP_SIZE - HDR_SIZE] = { 0 };
-    uint32_t len = 0;
+    uint32_t len = 0, send_len = 0;
+    int done = 0;
 
-    fp = fopen(config->share_file, "r");
+    fp = fopen(config->share_file, "rb");
     if(fp == NULL)
     {
         DPRINTF(DEBUG_PROCESSES, "Error open master data file\n");
-        return;
+        return 1;
     }
 
-    fseek(fp, CHUNK_SIZE * cli->ckid + (UDP_SIZE - HDR_SIZE) * cli->seq, SEEK_SET);
+    fseek(fp, BT_CHUNK_SIZE * cli->ckid + (UDP_SIZE - HDR_SIZE) * cli->seq, SEEK_SET);
 
     while(cli->seq - cli->ack < cli->win_size)
     {
-        len = fread(payload, 1, UDP_SIZE - HDR_SIZE, fp);
+        send_len = (BT_CHUNK_SIZE - (UDP_SIZE - HDR_SIZE) * cli->seq) < (UDP_SIZE - HDR_SIZE) ? (BT_CHUNK_SIZE - (UDP_SIZE - HDR_SIZE) *cli->seq) : (UDP_SIZE - HDR_SIZE);
+        len = fread(payload, 1, send_len, fp);
+
+        assert((UDP_SIZE - HDR_SIZE) * cli->seq + len <= BT_CHUNK_SIZE);
+        if((UDP_SIZE - HDR_SIZE) * cli->seq + len == BT_CHUNK_SIZE)
+            done = 1;
 
         ++cli->seq;
 
         send_packet(config->sock, peers, PKT_DATA, cli->seq, payload, len, NULL);
+
+        if(done == 1)
+            return done;
     }
 
     fclose(fp);
+
+    return done;
 }
 
 void send_ack(int sock, bt_peer_t *peers, uint32_t ack)
@@ -418,7 +429,7 @@ void process_get(bt_config_t *config, chunk_table_t cktbl, get_info_t *getinfo, 
         getinfo->cli_info[id].dup = 0;
         getinfo->cli_info[id].re_times = 0;
 
-        send_data(config, &peer, &getinfo->cli_info[id]);
+        assert(send_data(config, &peer, &getinfo->cli_info[id]) == 0);
 
         getinfo->cli_info[id].timeout = time(NULL);
     }
@@ -434,16 +445,41 @@ void process_data(uint32_t seq, uint8_t *payload, uint16_t len, struct sockaddr_
         return;
     }
 
+    int i = 0;
     bt_peer_t peer;
+    FILE *fp = NULL;
+    char fn[CHUNK_FILENAME_SIZE] = { 0 };
 
     peer.id = id;
     peer.addr = *from;
     peer.next = NULL;
 
     if(getinfo->srv_info[id].ack + 1 == seq)
+    {
+        sprintf(fn, "%s/ck%u.bin", TMP_FOLDER, getinfo->srv_info[id].ckarr_id);
+        if(getinfo->srv_info[id].ack == 0)
+            fp = fopen(fn, "wb");
+        else
+            fp = fopen(fn, "ab");
+
+        fwrite(payload, 1, len, fp); 
+
+        fclose(fp);
+
         ++getinfo->srv_info[id].ack;
 
-    send_ack(config->sock, &peer, getinfo->srv_info[id].ack);
+        send_ack(config->sock, &peer, getinfo->srv_info[id].ack);
+
+        if(getinfo->srv_info[id].ack == (BT_CHUNK_SIZE + UDP_SIZE - HDR_SIZE - 1) / (UDP_SIZE - HDR_SIZE))
+            if(check_chunk(fn, getinfo->srv_info[id].ckarr_id, ckarr) == 1)
+            {
+                for(i = 0; i < ckarr->num; ++i)
+                    if(ckarr->arr[i].state < CHUNK_GOT)
+                        break;
+                if(i >= ckarr->num)
+                    getinfo->done = 1;
+            }
+    }
 }
 
 void process_ack(uint32_t ack, struct sockaddr_in *from, bt_config_t *config, get_info_t *getinfo)
@@ -456,6 +492,26 @@ void process_ack(uint32_t ack, struct sockaddr_in *from, bt_config_t *config, ge
         return;
     }
 
+    bt_peer_t peer;
+
+    peer.id = id;
+    peer.addr = *from;
+    peer.next = NULL;
+
+    if(getinfo->cli_info[id].ack < ack)
+    {
+        getinfo->cli_info[id].ack = ack;
+        getinfo->cli_info[id].dup = 0;
+
+        if(send_data(config, &peer, &getinfo->cli_info[id]) == 1)
+            DPRINTF(DEBUG_PROCESSES, "Send chunk %u to peer %s:%u done\n", 
+                    getinfo->cli_info[id].ckid, inet_ntoa(from->sin_addr), ntohs(from->sin_port));
+    }
+    else
+    {
+        ++getinfo->cli_info[id].dup;
+        DPRINTF(DEBUG_PROCESSES, "TODO: Duplicate ACK\n");
+    }
 }
 
 void check_retransmit(get_info_t *getinfo, bt_config_t *config, chunk_array_t *ckarr)
