@@ -12,7 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <assert.h>
+#include <errno.h>
 #include <arpa/inet.h>
 
 const char *pkt_type_strings[] = {
@@ -55,10 +55,10 @@ void send_packet(int sock, bt_peer_t *peers, uint8_t type, uint32_t seq_ack, uin
         case PKT_GET:
             break;
         case PKT_DATA:
-            pkt->seq = seq_ack;
+            pkt->seq = htonl(seq_ack);
             break;
         case PKT_ACK:
-            pkt->ack = seq_ack;
+            pkt->ack = htonl(seq_ack);
             break;
         default:
             break;
@@ -184,42 +184,34 @@ void send_get(bt_config_t *config, chunk_array_t *ckarr, get_info_t *getinfo)
         }
 }
 
-int send_data(bt_config_t *config, bt_peer_t *peers, client_info_t *cli)
+void send_data(bt_config_t *config, bt_peer_t *peers, client_info_t *cli)
 {
     FILE *fp = NULL;
     uint8_t payload[UDP_SIZE - HDR_SIZE] = { 0 };
     uint32_t len = 0, send_len = 0;
-    int done = 0;
 
     fp = fopen(config->share_file, "rb");
     if(fp == NULL)
     {
-        DPRINTF(DEBUG_PROCESSES, "Error open master data file\n");
-        return 1;
+        DPRINTF(DEBUG_PROCESSES, "Error open master data file %s: %s\n", 
+                config->share_file, strerror(errno));
+        return;
     }
 
     fseek(fp, BT_CHUNK_SIZE * cli->ckid + (UDP_SIZE - HDR_SIZE) * cli->seq, SEEK_SET);
 
-    while(cli->seq - cli->ack < cli->win_size)
+    while(cli->seq < (BT_CHUNK_SIZE + UDP_SIZE - HDR_SIZE - 1) / (UDP_SIZE - HDR_SIZE) && cli->seq - cli->ack < cli->win_size)
     {
         send_len = (BT_CHUNK_SIZE - (UDP_SIZE - HDR_SIZE) * cli->seq) < (UDP_SIZE - HDR_SIZE) ? (BT_CHUNK_SIZE - (UDP_SIZE - HDR_SIZE) *cli->seq) : (UDP_SIZE - HDR_SIZE);
+        
         len = fread(payload, 1, send_len, fp);
-
-        assert((UDP_SIZE - HDR_SIZE) * cli->seq + len <= BT_CHUNK_SIZE);
-        if((UDP_SIZE - HDR_SIZE) * cli->seq + len == BT_CHUNK_SIZE)
-            done = 1;
 
         ++cli->seq;
 
         send_packet(config->sock, peers, PKT_DATA, cli->seq, payload, len, NULL);
-
-        if(done == 1)
-            return done;
     }
 
     fclose(fp);
-
-    return done;
 }
 
 void send_ack(int sock, bt_peer_t *peers, uint32_t ack)
@@ -229,14 +221,42 @@ void send_ack(int sock, bt_peer_t *peers, uint32_t ack)
 
 void process_packet(uint8_t *msg, struct sockaddr_in *from, bt_config_t *config, chunk_table_t cktbl, chunk_array_t *ckarr, get_info_t *getinfo)
 {
-    assert(bt_peer_id(config, from) >= 0);
+    if(bt_peer_id(config, from) < 0)
+    {
+        DPRINTF(DEBUG_PROCESSES, "Packet from invalid peer %s:%u\n", 
+                inet_ntoa(from->sin_addr), ntohs(from->sin_port));
+        return;
+    }
 
     packet *pkt = (packet *)msg; 
 
-    assert(ntohs(pkt->magic) == MAGIC);
-    assert(pkt->version == VERSION);
-    assert(pkt->type >= 0 && pkt->type <=5);
-    assert(ntohs(pkt->hdr_len) == HDR_SIZE);
+    if(ntohs(pkt->magic) != MAGIC)
+    {
+        DPRINTF(DEBUG_PROCESSES, "Packet with invalid magic from %s:%u\n", 
+                inet_ntoa(from->sin_addr), ntohs(from->sin_port));
+        return;
+    }
+
+    if(pkt->version != VERSION)
+    {
+        DPRINTF(DEBUG_PROCESSES, "Packet with invalid version from %s:%u\n", 
+                inet_ntoa(from->sin_addr), ntohs(from->sin_port));
+        return;
+    }
+
+    if(pkt->type < 0 || pkt->type > 5)
+    {
+        DPRINTF(DEBUG_PROCESSES, "Packet with invalid type from %s:%u\n", 
+                inet_ntoa(from->sin_addr), ntohs(from->sin_port));
+        return;
+    }
+
+    if(ntohs(pkt->hdr_len) != HDR_SIZE)
+    {
+        DPRINTF(DEBUG_PROCESSES, "Packet with invalid header from %s:%u\n", 
+                inet_ntoa(from->sin_addr), ntohs(from->sin_port));
+        return;
+    }
 
     print_packet(1, from, pkt);
 
@@ -252,10 +272,10 @@ void process_packet(uint8_t *msg, struct sockaddr_in *from, bt_config_t *config,
             process_get(config, cktbl, getinfo, pkt->payload, ntohs(pkt->tot_len) - HDR_SIZE, from);
             break;
         case PKT_DATA:
-            process_data(pkt->seq, pkt->payload, ntohs(pkt->tot_len) - HDR_SIZE, from, config, getinfo, ckarr);
+            process_data(ntohl(pkt->seq), pkt->payload, ntohs(pkt->tot_len) - HDR_SIZE, from, config, getinfo, ckarr);
             break;
         case PKT_ACK:
-            process_ack(pkt->ack, from, config, getinfo);
+            process_ack(ntohl(pkt->ack), from, config, getinfo);
             break;
         default:
             break;
@@ -268,7 +288,12 @@ void process_whohas(uint8_t *payload, uint16_t len, int sock, struct sockaddr_in
     int id = -1;
     chunk_entry_t *head = NULL, *cur = NULL;
 
-    assert(len == (4 + HASH_BINARY_SIZE * num_recv));
+    if(len != (4 + HASH_BINARY_SIZE * num_recv))
+    {
+        DPRINTF(DEBUG_PROCESSES, "WHOHAS packet with invalid payload len form %s:%u\n", 
+                inet_ntoa(from->sin_addr), ntohs(from->sin_port));
+        return;
+    }
 
     for(i = 0; i < num_recv; i++)
     {
@@ -298,7 +323,6 @@ void process_whohas(uint8_t *payload, uint16_t len, int sock, struct sockaddr_in
         cur = head;
         for(i = 0; i < num_send; ++i)
         {
-            assert(cur != NULL);
             memcpy(payload_send + 4 + HASH_BINARY_SIZE * i, cur->row.hash, HASH_BINARY_SIZE);
             cur = cur->next;
         }
@@ -317,8 +341,19 @@ void process_ihave(uint8_t *payload, uint16_t len, struct sockaddr_in *from, bt_
     char ascii[HASH_ASCII_SIZE + 1] = { 0 };
     bt_peer_t *peer = NULL, *p = NULL;
 
-    assert(num > 0);
-    assert(len == (4 + HASH_BINARY_SIZE * num));
+    if(num <= 0)
+    {
+        DPRINTF(DEBUG_PROCESSES, "IHAVE packet with zero or negative legnth payload from %s:%u\n", 
+                inet_ntoa(from->sin_addr), ntohs(from->sin_port));
+        return;
+    }
+    
+    if(len != (4 + HASH_BINARY_SIZE * num))
+    {
+        DPRINTF(DEBUG_PROCESSES, "IHAVE packet with invalid payload len form %s:%u\n", 
+                inet_ntoa(from->sin_addr), ntohs(from->sin_port));
+        return;
+    }
 
     for(i = 0; i < num; ++i)
     {
@@ -354,7 +389,6 @@ void process_ihave(uint8_t *payload, uint16_t len, struct sockaddr_in *from, bt_
                         if(peer->id != 0)
                             p->next = peer;
                     }
-                    (ckarr->arr)[i].candidates = peer;
 
                     rows[j].id = 0;
                     --left;
@@ -366,16 +400,16 @@ void process_ihave(uint8_t *payload, uint16_t len, struct sockaddr_in *from, bt_
     free(rows);
 
     for(i = 0; i < num_info; ++i)
-        if((ckarr->arr)[i].candidates == NULL)
+        if(ckarr->arr[i].candidates == NULL)
             return;
     
     DPRINTF(DEBUG_PROCESSES, "============================================\n");
     DPRINTF(DEBUG_PROCESSES, "Receive IHAVE for all chunks\n");
     for(i = 0; i < ckarr->num; ++i)
     {
-        binary2hex((ckarr->arr)[i].row.hash, HASH_BINARY_SIZE, ascii);
+        binary2hex(ckarr->arr[i].row.hash, HASH_BINARY_SIZE, ascii);
         ascii[HASH_ASCII_SIZE] = 0;
-        DPRINTF(DEBUG_PROCESSES, "hash %d: %s\n", (ckarr->arr)[i].row.id, ascii);
+        DPRINTF(DEBUG_PROCESSES, "hash %d: %s\n", ckarr->arr[i].row.id, ascii);
         peer = (ckarr->arr)[i].candidates;
         j = 1;
         while(peer != NULL)
@@ -392,7 +426,12 @@ void process_ihave(uint8_t *payload, uint16_t len, struct sockaddr_in *from, bt_
 
 void process_get(bt_config_t *config, chunk_table_t cktbl, get_info_t *getinfo, uint8_t *payload, uint16_t len, struct sockaddr_in *from)
 {
-    assert(len == HASH_BINARY_SIZE);
+    if(len != HASH_BINARY_SIZE)
+    {
+        DPRINTF(DEBUG_PROCESSES, "GET packet with invalid payload length from %s:%u\n", 
+                inet_ntoa(from->sin_addr), ntohs(from->sin_port));
+        return;
+    }
 
     int id = bt_peer_id(config, from);
     bt_peer_t peer;
@@ -420,7 +459,8 @@ void process_get(bt_config_t *config, chunk_table_t cktbl, get_info_t *getinfo, 
         getinfo->cli_info[id].ckid = search_cktbl(cktbl, payload);
         if(getinfo->cli_info[id].ckid == -1)
         {
-            fprintf(stderr, "GET invalid chunk hash\n");
+            DPRINTF(DEBUG_PROCESSES, "GET packet with invalid chunk hash from %s:%u\n", 
+                    inet_ntoa(from->sin_addr), ntohs(from->sin_port));
             return;
         }
 
@@ -429,7 +469,7 @@ void process_get(bt_config_t *config, chunk_table_t cktbl, get_info_t *getinfo, 
         getinfo->cli_info[id].dup = 0;
         getinfo->cli_info[id].re_times = 0;
 
-        assert(send_data(config, &peer, &getinfo->cli_info[id]) == 0);
+        send_data(config, &peer, &getinfo->cli_info[id]);
 
         getinfo->cli_info[id].timeout = time(NULL);
     }
@@ -441,7 +481,8 @@ void process_data(uint32_t seq, uint8_t *payload, uint16_t len, struct sockaddr_
 
     if(id < 0)
     {
-        fprintf(stderr, "Data from invalid peer\n");
+        DPRINTF(DEBUG_PROCESSES, "DATA packet from invalid peer %s:%u\n", 
+                inet_ntoa(from->sin_addr), ntohs(from->sin_port));
         return;
     }
 
@@ -471,14 +512,28 @@ void process_data(uint32_t seq, uint8_t *payload, uint16_t len, struct sockaddr_
         send_ack(config->sock, &peer, getinfo->srv_info[id].ack);
 
         if(getinfo->srv_info[id].ack == (BT_CHUNK_SIZE + UDP_SIZE - HDR_SIZE - 1) / (UDP_SIZE - HDR_SIZE))
+        {
             if(check_chunk(fn, getinfo->srv_info[id].ckarr_id, ckarr) == 1)
             {
+                DPRINTF(DEBUG_PROCESSES, "DATA chunk %d from %s:%u done\n", 
+                        getinfo->srv_info[id].ckarr_id, inet_ntoa(from->sin_addr), ntohs(from->sin_port));
+
                 for(i = 0; i < ckarr->num; ++i)
                     if(ckarr->arr[i].state < CHUNK_GOT)
                         break;
-                if(i >= ckarr->num)
+
+                if(i >= ckarr->num)  
                     getinfo->done = 1;
+                else
+                {
+                    bzero(&getinfo->srv_info[id], sizeof(server_info_t));
+                    send_get(config, ckarr, getinfo);
+                }
             }
+            else
+                DPRINTF(DEBUG_PROCESSES, "DATA invalid from %s:%u\n", 
+                        inet_ntoa(from->sin_addr), ntohs(from->sin_port));
+        }
     }
 }
 
@@ -488,7 +543,8 @@ void process_ack(uint32_t ack, struct sockaddr_in *from, bt_config_t *config, ge
 
     if(id < 0)
     {
-        fprintf(stderr, "Error ack from invalid peer\n");
+        DPRINTF(DEBUG_PROCESSES, "ACK packet from invalid peer %s:%u\n", 
+                inet_ntoa(from->sin_addr), ntohs(from->sin_port));
         return;
     }
 
@@ -503,9 +559,15 @@ void process_ack(uint32_t ack, struct sockaddr_in *from, bt_config_t *config, ge
         getinfo->cli_info[id].ack = ack;
         getinfo->cli_info[id].dup = 0;
 
-        if(send_data(config, &peer, &getinfo->cli_info[id]) == 1)
+        if(getinfo->cli_info[id].ack == (BT_CHUNK_SIZE + UDP_SIZE - HDR_SIZE - 1) / (UDP_SIZE - HDR_SIZE))
+        {
             DPRINTF(DEBUG_PROCESSES, "Send chunk %u to peer %s:%u done\n", 
                     getinfo->cli_info[id].ckid, inet_ntoa(from->sin_addr), ntohs(from->sin_port));
+
+            bzero(&getinfo->cli_info[id], sizeof(client_info_t));
+        }
+        else
+            send_data(config, &peer, &getinfo->cli_info[id]);
     }
     else
     {

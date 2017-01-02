@@ -104,7 +104,7 @@ void send_packet(int sock, bt_peer_t *peers, uint8_t type, uint32_t seq_ack, uin
 void send_whohas(int sock, bt_peer_t *peers, chunk_array_t *ckarr, list(uint32_t) *list);
 void send_ihave(int sock, bt_peer_t *peers, uint8_t *payload, uint32_t len);
 void send_get(bt_config_t *config, chunk_array_t *ckarr, get_info_t *getinfo);
-int send_data(bt_config_t *config, bt_peer_t *peers, client_info_t *cli);
+void send_data(bt_config_t *config, bt_peer_t *peers, client_info_t *cli);
 void send_ack(int sock, bt_peer_t *peers, uint32_t ack);
 
 void process_packet(uint8_t *msg, struct sockaddr_in *from, bt_config_t *config, chunk_table_t cktbl, chunk_array_t *ckarr, get_info_t *getinfo);

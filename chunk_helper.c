@@ -13,6 +13,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <errno.h>
 
 int get_chunk_row(FILE *f, chunk_row_t *row)
 {
@@ -152,25 +153,28 @@ int check_chunk(const char *ck_fn, int id, chunk_array_t *ckarr)
     uint32_t flen = 0;
     int num = 0;
     uint8_t *hash = NULL;
-    char fn[CHUNK_FILENAME_SIZE] = { 0 };
 
-    sprintf(fn, "%s/%s", TMP_FOLDER, ck_fn);
-
-    fp = fopen(fn, "rb");
+    fp = fopen(ck_fn, "rb");
+    if(fp == NULL)
+    {
+        DPRINTF(DEBUG_PROCESSES, "Error open tmp chunk file %s: %s\n", 
+                ck_fn, strerror(errno));
+        return -1;
+    }
     fseek(fp, 0, SEEK_END);
     flen = ftell(fp);
+
     if(flen != BT_CHUNK_SIZE)
     {
         DPRINTF(DEBUG_PROCESSES, "Chunk size not equals 512K\n");
         ckarr->arr[id].state = CHUNK_UNGOT;
         return 0;
     }
-    
+
     fseek(fp, 0, SEEK_SET);
 
     hash = (uint8_t *)malloc(HASH_BINARY_SIZE * sizeof(uint8_t));
     num = make_chunks(fp, &hash);
-    assert(num);
 
     if(strncmp((const char *)hash, (const char *)ckarr->arr[id].row.hash, HASH_BINARY_SIZE) == 0)
     {

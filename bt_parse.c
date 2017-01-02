@@ -163,7 +163,7 @@ void bt_parse_share_file(bt_config_t *config)
     pos0 = strchr(line, ':') - line + 1;
     for( ; line[pos0] != 0 && line[pos0] == ' '; ++pos0);
     assert(line[pos0] != 0);
-    for(pos1 = pos0; line[pos1] != 0 && line[pos1] != ' '; ++pos1);
+    for(pos1 = pos0; line[pos1] != 0 && line[pos1] != '\r' && line[pos1] != '\n' && line[pos1] != ' '; ++pos1);
     strncpy(config->share_file, line + pos0, pos1 - pos0);
     config->share_file[pos1 - pos0] = 0;
 
