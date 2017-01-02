@@ -385,7 +385,8 @@ void process_ihave(uint8_t *payload, uint16_t len, struct sockaddr_in *from, bt_
                                 peer->id = 0;
                                 break;
                             }
-                        } while(p->next != NULL);
+                        } while(p->next != NULL && (p = p->next));
+
                         if(peer->id != 0)
                             p->next = peer;
                     }
@@ -402,7 +403,7 @@ void process_ihave(uint8_t *payload, uint16_t len, struct sockaddr_in *from, bt_
     for(i = 0; i < num_info; ++i)
         if(ckarr->arr[i].candidates == NULL)
             return;
-    
+
     DPRINTF(DEBUG_PROCESSES, "============================================\n");
     DPRINTF(DEBUG_PROCESSES, "Receive IHAVE for all chunks\n");
     for(i = 0; i < ckarr->num; ++i)

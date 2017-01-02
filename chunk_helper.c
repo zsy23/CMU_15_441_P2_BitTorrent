@@ -248,6 +248,7 @@ void free_ckarr(chunk_array_t *ckarr)
     for(i = 0; i < ckarr->num; ++i)
     {
         peer = (ckarr->arr)[i].candidates;
+
         while(peer != NULL)
         {
             tmp = peer;

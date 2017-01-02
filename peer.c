@@ -185,6 +185,12 @@ void peer_run(bt_config_t *config)
 
             fprintf(stdout, "GOT %s\n", config->get_chunk_file);
             free_ckarr(&ckarr);
+
+            getinfo.start = 0;
+            getinfo.done = 0;
+            getinfo.srv_conn = getinfo.cli_conn = 0;
+            bzero(getinfo.srv_info, sizeof(server_info_t) * (getinfo.peer_num + 1));
+            bzero(getinfo.cli_info, sizeof(client_info_t) * (getinfo.peer_num + 1));
         }
 
         rset = allset;
