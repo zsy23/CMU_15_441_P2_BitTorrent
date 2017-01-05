@@ -166,6 +166,7 @@ void send_get(bt_config_t *config, chunk_array_t *ckarr, get_info_t *getinfo)
 
                 getinfo->srv_info[peer->id].used = 1;
                 getinfo->srv_info[peer->id].timeout = time(NULL) + TIMEOUT;
+                getinfo->srv_info[peer->id].ckarr_id = i;
                 getinfo->srv_info[peer->id].re_times = 0;
                 getinfo->srv_info[peer->id].pre_pkt = &pkt;
 
@@ -541,6 +542,12 @@ void process_data(uint32_t seq, uint8_t *payload, uint16_t len, struct sockaddr_
                         inet_ntoa(from->sin_addr), ntohs(from->sin_port));
         }
     }
+    else
+    {
+        getinfo->srv_info[id].pre_pkt = &pkt;
+
+        send_ack(config->sock, &peer, &getinfo->srv_info[id]);
+    }
 }
 
 void process_ack(uint32_t ack, struct sockaddr_in *from, bt_config_t *config, get_info_t *getinfo)
@@ -582,7 +589,14 @@ void process_ack(uint32_t ack, struct sockaddr_in *from, bt_config_t *config, ge
     else
     {
         ++getinfo->cli_info[id].dup;
-        DPRINTF(DEBUG_PROCESSES, "TODO: Duplicate ACK\n");
+        if(getinfo->cli_info[id].dup == 3)
+        {
+            getinfo->cli_info[id].dup = 0;
+            getinfo->cli_info[id].re_times = 0;
+
+            getinfo->cli_info[id].seq = getinfo->cli_info[id].ack;
+            send_data(config, &peer, &getinfo->cli_info[id]);
+        }
     }
 }
 

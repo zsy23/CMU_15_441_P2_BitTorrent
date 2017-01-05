@@ -17,6 +17,7 @@
 #define WIN_SIZE 8
 #define TIMEOUT 5
 #define RETRANSMIT_TIMES 5
+#define DUP_ACK_NUM 3
 
 #define UDP_SIZE 1500
 #define HDR_SIZE 16
