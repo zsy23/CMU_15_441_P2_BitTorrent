@@ -195,10 +195,10 @@ void peer_run(bt_config_t *config)
 
         rset = allset;
     
-        nready = select(sock + 1, &rset, NULL, NULL, NULL/*&timeout*/);
+        nready = select(sock + 1, &rset, NULL, NULL, &timeout);
     
-//        if(nready == 0 && (getinfo.srv_conn > 0 || getinfo.cli_conn > 0))
-//            check_retransmit(&getinfo, config, &ckarr);
+        if(nready == 0 && (getinfo.srv_conn > 0 || getinfo.cli_conn > 0))
+            check_retransmit(&getinfo, config, &ckarr);
         if (nready > 0)
         {
             if (FD_ISSET(sock, &rset))
@@ -211,7 +211,7 @@ void peer_run(bt_config_t *config)
                 process_get_cmd(config, &ckarr);
             }
 
-//            check_retransmit(&getinfo, config, &ckarr);
+            check_retransmit(&getinfo, config, &ckarr);
         }
     }
 

@@ -166,7 +166,7 @@ void send_get(bt_config_t *config, chunk_array_t *ckarr, get_info_t *getinfo)
 
                 getinfo->srv_info[peer->id].used = 1;
                 getinfo->srv_info[peer->id].timeout = time(NULL) + TIMEOUT;
-                getinfo->srv_info[peer->id].ckarr_id = i;
+                getinfo->srv_info[peer->id].re_times = 0;
                 getinfo->srv_info[peer->id].pre_pkt = &pkt;
 
                 memcpy(payload, ckarr->arr[i].row.hash, HASH_BINARY_SIZE);
@@ -212,11 +212,16 @@ void send_data(bt_config_t *config, bt_peer_t *peers, client_info_t *cli)
     }
 
     fclose(fp);
+
+    cli->timeout = time(NULL) + TIMEOUT;
 }
 
-void send_ack(int sock, bt_peer_t *peers, uint32_t ack)
+void send_ack(int sock, bt_peer_t *peers, server_info_t *srv)
 {
-    send_packet(sock, peers, PKT_ACK, ack, NULL, 0, NULL);
+    srv->timeout = time(NULL) + TIMEOUT;
+    srv->re_times = 0;
+
+    send_packet(sock, peers, PKT_ACK, srv->ack, NULL, 0, &srv->pre_pkt);
 }
 
 void process_packet(uint8_t *msg, struct sockaddr_in *from, bt_config_t *config, chunk_table_t cktbl, chunk_array_t *ckarr, get_info_t *getinfo)
@@ -468,11 +473,9 @@ void process_get(bt_config_t *config, chunk_table_t cktbl, get_info_t *getinfo, 
         getinfo->cli_info[id].seq = 0;
         getinfo->cli_info[id].ack = 0;
         getinfo->cli_info[id].dup = 0;
+
         getinfo->cli_info[id].re_times = 0;
-
         send_data(config, &peer, &getinfo->cli_info[id]);
-
-        getinfo->cli_info[id].timeout = time(NULL);
     }
 }
 
@@ -491,6 +494,7 @@ void process_data(uint32_t seq, uint8_t *payload, uint16_t len, struct sockaddr_
     bt_peer_t peer;
     FILE *fp = NULL;
     char fn[CHUNK_FILENAME_SIZE] = { 0 };
+    packet pkt;
 
     peer.id = id;
     peer.addr = *from;
@@ -509,8 +513,9 @@ void process_data(uint32_t seq, uint8_t *payload, uint16_t len, struct sockaddr_
         fclose(fp);
 
         ++getinfo->srv_info[id].ack;
+        getinfo->srv_info[id].pre_pkt = &pkt;
 
-        send_ack(config->sock, &peer, getinfo->srv_info[id].ack);
+        send_ack(config->sock, &peer, &getinfo->srv_info[id]);
 
         if(getinfo->srv_info[id].ack == (BT_CHUNK_SIZE + UDP_SIZE - HDR_SIZE - 1) / (UDP_SIZE - HDR_SIZE))
         {
@@ -568,7 +573,11 @@ void process_ack(uint32_t ack, struct sockaddr_in *from, bt_config_t *config, ge
             bzero(&getinfo->cli_info[id], sizeof(client_info_t));
         }
         else
+        {
+            getinfo->cli_info[id].re_times = 0;
+
             send_data(config, &peer, &getinfo->cli_info[id]);
+        }
     }
     else
     {
@@ -584,6 +593,7 @@ void check_retransmit(get_info_t *getinfo, bt_config_t *config, chunk_array_t *c
     bt_peer_t p;
     list(uint32_t) list;
 
+    // client check server
     for(i = 1, j = 0; i < (getinfo->peer_num + 1) && j < getinfo->srv_conn; ++i)
         if(getinfo->srv_info[i].used == 1)
         {
@@ -600,7 +610,7 @@ void check_retransmit(get_info_t *getinfo, bt_config_t *config, chunk_array_t *c
                     getinfo->srv_info[i].timeout = time(NULL) + TIMEOUT;
                     ++getinfo->srv_info[i].re_times;
                 }
-                else if(getinfo->srv_info[i].re_times == RETRANSMIT_TIMES)
+                else if(getinfo->srv_info[i].re_times >= RETRANSMIT_TIMES)
                 {
                     list.data = getinfo->srv_info[i].ckarr_id;
                     list.next = NULL;
@@ -625,11 +635,43 @@ void check_retransmit(get_info_t *getinfo, bt_config_t *config, chunk_array_t *c
                         pp = pp->next;
                     }
 
+                    free(pp);
+
                     send_whohas(config->sock, config->peers, ckarr, &list);
 
                     free(getinfo->srv_info[i].pre_pkt);
                     bzero(&getinfo->srv_info[i], sizeof(server_info_t));
                     --getinfo->srv_conn;
+
+                    continue;
+                }
+            }
+
+            ++j;
+        }
+
+    // server check client
+    for(i = 1, j = 0; i < (getinfo->peer_num + 1) && j < getinfo->cli_conn; ++i)
+        if(getinfo->cli_info[i].used == 1)
+        {
+            if(time(NULL) >= getinfo->cli_info[i].timeout)
+            {
+                pp = bt_peer_info(config, i);
+                p.id = pp->id;
+                p.addr = pp->addr;
+                p.next = NULL;
+
+                if(getinfo->cli_info[i].re_times < RETRANSMIT_TIMES)
+                {    
+                    getinfo->cli_info[i].seq = getinfo->cli_info[i].ack;
+                    send_data(config, &p, &getinfo->cli_info[i]);
+
+                    ++getinfo->cli_info[i].re_times;
+                }
+                else if(getinfo->cli_info[i].re_times >= RETRANSMIT_TIMES)
+                {
+                    bzero(&getinfo->cli_info[i], sizeof(client_info_t));
+                    --getinfo->cli_conn;
 
                     continue;
                 }
