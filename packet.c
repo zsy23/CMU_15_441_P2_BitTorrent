@@ -15,6 +15,8 @@
 #include <errno.h>
 #include <arpa/inet.h>
 
+extern clock_t program_start;
+
 const char *pkt_type_strings[] = {
     "WHOHAS",
     "IHAVE",
@@ -464,6 +466,7 @@ void process_get(bt_config_t *config, chunk_table_t cktbl, get_info_t *getinfo, 
         }
 
         getinfo->cli_info[id].win_size = WIN_SIZE;
+        record_winsize(WIN_SIZE_FN, config->identity, id, getinfo->cli_info[id].win_size);
         getinfo->cli_info[id].ckid = search_cktbl(cktbl, payload);
         if(getinfo->cli_info[id].ckid == -1)
         {
@@ -584,12 +587,14 @@ void process_ack(uint32_t ack, struct sockaddr_in *from, bt_config_t *config, ge
             if(time(NULL) - getinfo->cli_info[id].rtt_timer >= getinfo->cli_info[id].rtt)
             {
                 ++getinfo->cli_info[id].win_size;
+                record_winsize(WIN_SIZE_FN, config->identity, id, getinfo->cli_info[id].win_size);
                 getinfo->cli_info[id].rtt_timer = time(NULL);
             }
         }
         else if(getinfo->cli_info[id].stage == 0 /* Slow Start */)
         {
             ++getinfo->cli_info[id].win_size;
+            record_winsize(WIN_SIZE_FN, config->identity, id, getinfo->cli_info[id].win_size);
             if(getinfo->cli_info[id].win_size >= getinfo->cli_info[id].ssthresh)
             {
                 getinfo->cli_info[id].stage = 1 /* Congestion Avoidance */ ;
@@ -622,6 +627,7 @@ void process_ack(uint32_t ack, struct sockaddr_in *from, bt_config_t *config, ge
 
             getinfo->cli_info[id].ssthresh = UPDATE_SSTHRESH(getinfo->cli_info[id].win_size);
             getinfo->cli_info[id].win_size = getinfo->cli_info[id].ssthresh;
+            record_winsize(WIN_SIZE_FN, config->identity, id, getinfo->cli_info[id].win_size);
             getinfo->cli_info[id].rtt_timer = time(NULL);
 
             getinfo->cli_info[id].dup = 0;
@@ -715,6 +721,7 @@ void check_retransmit(get_info_t *getinfo, bt_config_t *config, chunk_array_t *c
 
                     getinfo->cli_info[i].ssthresh = UPDATE_SSTHRESH(getinfo->cli_info[i].win_size);
                     getinfo->cli_info[i].win_size = getinfo->cli_info[i].ssthresh;
+                    record_winsize(WIN_SIZE_FN, config->identity, i, getinfo->cli_info[i].win_size);
                     getinfo->cli_info[i].rtt_timer = time(NULL);
 
                     getinfo->cli_info[i].seq = getinfo->cli_info[i].ack;
@@ -767,4 +774,13 @@ void print_packet(int type, const struct sockaddr_in *addr, packet *pkt)
         default:
             break;
     }
+}
+
+void record_winsize(char *fn, int srv_id, int cli_id, uint32_t win_size)
+{
+    FILE *fp = fopen(fn, "a");
+    clock_t now = clock();
+    uint32_t t = (uint32_t)((now - program_start) / CLOCKS_PER_SEC * 1000);
+    fprintf(fp, "s%d->c%d\t%u\t%u\n", srv_id, cli_id, t, win_size);
+    fclose(fp);
 }

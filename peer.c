@@ -31,6 +31,8 @@
 #include "chunk_helper.h"
 #include "packet.h"
 
+clock_t program_start;
+
 void peer_run(bt_config_t *config);
 
 int main(int argc, char **argv)
@@ -178,6 +180,8 @@ void peer_run(bt_config_t *config)
     FD_SET(STDIN_FILENO, &allset);
     FD_SET(sock, &allset);
   
+    program_start = clock();
+
     while (1)
     {
         if(getinfo.done == 1)

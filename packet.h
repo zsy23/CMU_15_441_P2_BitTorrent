@@ -14,6 +14,8 @@
 #include <stdint.h>
 #include <time.h>
 
+#define WIN_SIZE_FN "win_size.txt"
+
 #define WIN_SIZE 1
 #define SSTHRESH 64
 #define UPDATE_SSTHRESH(win_size) (win_size / 2 > 2 ? win_size / 2 : 2)
@@ -125,6 +127,8 @@ void process_data(uint32_t seq, uint8_t *payload, uint16_t len, struct sockaddr_
 void process_ack(uint32_t ack, struct sockaddr_in *from, bt_config_t *config, get_info_t *getinfo);
 
 void check_retransmit(get_info_t *getinfo, bt_config_t *config, chunk_array_t *ckarr);
+
 void print_packet(int type, const struct sockaddr_in *addr, packet *pkt);
+void record_winsize(char *fn, int srv_id, int cli_id, uint32_t win_size);
 
 #endif /* _PACKET_H_ */
