@@ -215,6 +215,7 @@ void send_data(bt_config_t *config, bt_peer_t *peers, client_info_t *cli)
     fclose(fp);
 
     cli->timeout = time(NULL) + TIMEOUT;
+    cli->timer = time(NULL);
 }
 
 void send_ack(int sock, bt_peer_t *peers, server_info_t *srv)
@@ -572,12 +573,37 @@ void process_ack(uint32_t ack, struct sockaddr_in *from, bt_config_t *config, ge
         getinfo->cli_info[id].ack = ack;
         getinfo->cli_info[id].dup = 0;
 
+        if(getinfo->cli_info[id].rtt == 0.0)
+            getinfo->cli_info[id].rtt = time(NULL) - getinfo->cli_info[id].timer;
+        else
+            getinfo->cli_info[id].rtt = ESTIMATE_RTT(getinfo->cli_info[id].rtt, time(NULL) - getinfo->cli_info[id].timer);
+        getinfo->cli_info[id].timer = 0;
+
+        if(getinfo->cli_info[id].stage == 1 /* Congestion Avoidance */)
+        {
+            if(time(NULL) - getinfo->cli_info[id].rtt_timer >= getinfo->cli_info[id].rtt)
+            {
+                ++getinfo->cli_info[id].win_size;
+                getinfo->cli_info[id].rtt_timer = time(NULL);
+            }
+        }
+        else if(getinfo->cli_info[id].stage == 0 /* Slow Start */)
+        {
+            ++getinfo->cli_info[id].win_size;
+            if(getinfo->cli_info[id].win_size >= getinfo->cli_info[id].ssthresh)
+            {
+                getinfo->cli_info[id].stage = 1 /* Congestion Avoidance */ ;
+                getinfo->cli_info[id].rtt_timer = time(NULL);
+            }
+        }
+
         if(getinfo->cli_info[id].ack == (BT_CHUNK_SIZE + UDP_SIZE - HDR_SIZE - 1) / (UDP_SIZE - HDR_SIZE))
         {
             DPRINTF(DEBUG_PROCESSES, "Send chunk %u to peer %s:%u done\n", 
                     getinfo->cli_info[id].ckid, inet_ntoa(from->sin_addr), ntohs(from->sin_port));
 
             bzero(&getinfo->cli_info[id], sizeof(client_info_t));
+            getinfo->cli_info[id].ssthresh = SSTHRESH;
         }
         else
         {
@@ -591,6 +617,13 @@ void process_ack(uint32_t ack, struct sockaddr_in *from, bt_config_t *config, ge
         ++getinfo->cli_info[id].dup;
         if(getinfo->cli_info[id].dup == 3)
         {
+            if(getinfo->cli_info[id].stage == 0 /* Slow Start */)
+                getinfo->cli_info[id].stage = 1 /* Congestion Avoidance */ ;
+
+            getinfo->cli_info[id].ssthresh = UPDATE_SSTHRESH(getinfo->cli_info[id].win_size);
+            getinfo->cli_info[id].win_size = getinfo->cli_info[id].ssthresh;
+            getinfo->cli_info[id].rtt_timer = time(NULL);
+
             getinfo->cli_info[id].dup = 0;
             getinfo->cli_info[id].re_times = 0;
 
@@ -677,6 +710,13 @@ void check_retransmit(get_info_t *getinfo, bt_config_t *config, chunk_array_t *c
 
                 if(getinfo->cli_info[i].re_times < RETRANSMIT_TIMES)
                 {    
+                    if(getinfo->cli_info[i].stage == 0 /* Slow Start */)
+                        getinfo->cli_info[i].stage = 1 /* Congestion Avoidance */ ;
+
+                    getinfo->cli_info[i].ssthresh = UPDATE_SSTHRESH(getinfo->cli_info[i].win_size);
+                    getinfo->cli_info[i].win_size = getinfo->cli_info[i].ssthresh;
+                    getinfo->cli_info[i].rtt_timer = time(NULL);
+
                     getinfo->cli_info[i].seq = getinfo->cli_info[i].ack;
                     send_data(config, &p, &getinfo->cli_info[i]);
 
@@ -685,6 +725,7 @@ void check_retransmit(get_info_t *getinfo, bt_config_t *config, chunk_array_t *c
                 else if(getinfo->cli_info[i].re_times >= RETRANSMIT_TIMES)
                 {
                     bzero(&getinfo->cli_info[i], sizeof(client_info_t));
+                    getinfo->cli_info[i].ssthresh = SSTHRESH;
                     --getinfo->cli_conn;
 
                     continue;

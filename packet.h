@@ -14,7 +14,9 @@
 #include <stdint.h>
 #include <time.h>
 
-#define WIN_SIZE 8
+#define WIN_SIZE 1
+#define SSTHRESH 64
+#define UPDATE_SSTHRESH(win_size) (win_size / 2 > 2 ? win_size / 2 : 2)
 #define TIMEOUT 5
 #define RETRANSMIT_TIMES 5
 #define DUP_ACK_NUM 3
@@ -51,6 +53,8 @@
 
 define_list(uint32_t);
 
+#define ESTIMATE_RTT(ertt, srtt) (0.875 * ertt, 0.125 * srtt)
+
 typedef enum {
     PKT_WHOHAS, // 0
     PKT_IHAVE,  // 1
@@ -83,10 +87,15 @@ typedef struct {
 typedef struct {
     uint8_t used;
     uint32_t win_size;
+    uint16_t ssthresh;
+    uint8_t stage;
+    float rtt;
     uint32_t ckid;
     uint32_t seq, ack;
     uint8_t dup;
     time_t timeout;
+    time_t timer;
+    time_t rtt_timer;
     uint8_t re_times;
 } client_info_t;
 
