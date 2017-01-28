@@ -56,14 +56,17 @@ int main(int argc, char **argv)
         bt_dump_config(&config);
 #endif
 
-    if(access(TMP_FOLDER, F_OK) == 0)
+    char tmp_folder[32] = { 0 };
+    sprintf(tmp_folder, ".tmp_%d", config.identity);
+
+    if(access(tmp_folder, F_OK) == 0)
     {
-        char cmd[128] = { 0 };
-        sprintf(cmd, "rm -rf %s", TMP_FOLDER);
+        char cmd[64] = { 0 };
+        sprintf(cmd, "rm -rf %s", tmp_folder);
         system(cmd);
     }
         
-    if(mkdir(TMP_FOLDER, S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH) < 0)
+    if(mkdir(tmp_folder, S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH) < 0)
     {
         DPRINTF(DEBUG_INIT, "Error mkdir: %s\n", strerror(errno));
         return 1;
@@ -193,10 +196,8 @@ void peer_run(bt_config_t *config)
 
             getinfo.start = 0;
             getinfo.done = 0;
-            getinfo.srv_conn = getinfo.cli_conn = 0;
+            getinfo.srv_conn = 0;
             bzero(getinfo.srv_info, sizeof(server_info_t) * (getinfo.peer_num + 1));
-            bzero(getinfo.cli_info, sizeof(client_info_t) * (getinfo.peer_num + 1));
-            for(i = 0; i < getinfo.peer_num + 1; ++i) getinfo.cli_info[i].ssthresh = SSTHRESH;
         }
 
         rset = allset;

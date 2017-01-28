@@ -413,18 +413,18 @@ void process_ihave(uint8_t *payload, uint16_t len, struct sockaddr_in *from, bt_
         if(ckarr->arr[i].candidates == NULL)
             return;
 
-    DPRINTF(DEBUG_PROCESSES, "============================================\n");
-    DPRINTF(DEBUG_PROCESSES, "Receive IHAVE for all chunks\n");
+    DPRINTF(DEBUG_SOCKETS, "============================================\n");
+    DPRINTF(DEBUG_SOCKETS, "Receive IHAVE for all chunks\n");
     for(i = 0; i < ckarr->num; ++i)
     {
         binary2hex(ckarr->arr[i].row.hash, HASH_BINARY_SIZE, ascii);
         ascii[HASH_ASCII_SIZE] = 0;
-        DPRINTF(DEBUG_PROCESSES, "hash %d: %s\n", ckarr->arr[i].row.id, ascii);
+        DPRINTF(DEBUG_SOCKETS, "hash %d: %s\n", ckarr->arr[i].row.id, ascii);
         peer = (ckarr->arr)[i].candidates;
         j = 1;
         while(peer != NULL)
         {
-            DPRINTF(DEBUG_PROCESSES, "candidate %d: id: %d, addr: %s:%d\n", 
+            DPRINTF(DEBUG_SOCKETS, "candidate %d: id: %d, addr: %s:%d\n", 
                     j, peer->id, inet_ntoa(peer->addr.sin_addr), ntohs(peer->addr.sin_port));
             ++j;
             peer = peer->next;
@@ -507,7 +507,7 @@ void process_data(uint32_t seq, uint8_t *payload, uint16_t len, struct sockaddr_
 
     if(getinfo->srv_info[id].ack + 1 == seq)
     {
-        sprintf(fn, "%s/ck%u.bin", TMP_FOLDER, getinfo->srv_info[id].ckarr_id);
+        sprintf(fn, ".tmp_%d/ck%u.bin", config->identity, getinfo->srv_info[id].ckarr_id);
         if(getinfo->srv_info[id].ack == 0)
             fp = fopen(fn, "wb");
         else
@@ -534,16 +534,26 @@ void process_data(uint32_t seq, uint8_t *payload, uint16_t len, struct sockaddr_
                         break;
 
                 if(i >= ckarr->num)  
+                {
+                    bzero(&getinfo->srv_info[id], sizeof(server_info_t));
                     getinfo->done = 1;
+                }
                 else
                 {
                     bzero(&getinfo->srv_info[id], sizeof(server_info_t));
+                    --getinfo->srv_conn;
                     send_get(config, ckarr, getinfo);
                 }
             }
             else
+            {
                 DPRINTF(DEBUG_PROCESSES, "DATA invalid from %s:%u\n", 
                         inet_ntoa(from->sin_addr), ntohs(from->sin_port));
+
+                bzero(&getinfo->srv_info[id], sizeof(server_info_t));
+                --getinfo->srv_conn;
+                send_get(config, ckarr, getinfo);
+            }
         }
     }
     else
@@ -571,7 +581,7 @@ void process_ack(uint32_t ack, struct sockaddr_in *from, bt_config_t *config, ge
     peer.addr = *from;
     peer.next = NULL;
 
-    if(getinfo->cli_info[id].ack < ack)
+    if(getinfo->cli_info[id].used == 1 && getinfo->cli_info[id].ack < ack)
     {
         getinfo->cli_info[id].ack = ack;
         getinfo->cli_info[id].dup = 0;
@@ -609,6 +619,7 @@ void process_ack(uint32_t ack, struct sockaddr_in *from, bt_config_t *config, ge
 
             bzero(&getinfo->cli_info[id], sizeof(client_info_t));
             getinfo->cli_info[id].ssthresh = SSTHRESH;
+            --getinfo->cli_conn;
         }
         else
         {
@@ -617,7 +628,7 @@ void process_ack(uint32_t ack, struct sockaddr_in *from, bt_config_t *config, ge
             send_data(config, &peer, &getinfo->cli_info[id]);
         }
     }
-    else
+    else if(getinfo->cli_info[id].used == 1)
     {
         ++getinfo->cli_info[id].dup;
         if(getinfo->cli_info[id].dup == 3)
@@ -745,11 +756,11 @@ void check_retransmit(get_info_t *getinfo, bt_config_t *config, chunk_array_t *c
 
 void print_packet(int type, const struct sockaddr_in *addr, packet *pkt)
 {
-    DPRINTF(DEBUG_PROCESSES, "============================================\n");
-    DPRINTF(DEBUG_PROCESSES, "%s message to %s:%d\n",
+    DPRINTF(DEBUG_SOCKETS, "============================================\n");
+    DPRINTF(DEBUG_SOCKETS, "%s message to %s:%d\n",
             type == 0 ? "Send" : "Receive", 
             inet_ntoa(addr->sin_addr), ntohs(addr->sin_port));
-    DPRINTF(DEBUG_PROCESSES, "Magic: %u, Version: %u, Type: %s, Header_Length: %u, Total_Length: %u, Seq: %u, Ack: %u\n", 
+    DPRINTF(DEBUG_SOCKETS, "Magic: %u, Version: %u, Type: %s, Header_Length: %u, Total_Length: %u, Seq: %u, Ack: %u\n", 
             ntohs(pkt->magic), pkt->version, pkt_type_strings[pkt->type], ntohs(pkt->hdr_len), ntohs(pkt->tot_len), ntohl(pkt->seq), ntohl(pkt->ack));
     int num = 0, i = 0;
     char hash[HASH_ASCII_SIZE + 1] = { 0 };
@@ -758,18 +769,18 @@ void print_packet(int type, const struct sockaddr_in *addr, packet *pkt)
         case PKT_WHOHAS:
         case PKT_IHAVE:
             num = pkt->payload[0];
-            DPRINTF(DEBUG_PROCESSES, "Hash_Num: %d\n", num);
+            DPRINTF(DEBUG_SOCKETS, "Hash_Num: %d\n", num);
             for(i = 0; i < num; ++i)
             {
                 binary2hex(pkt->payload + 4 + HASH_BINARY_SIZE * i, HASH_BINARY_SIZE, hash);
                 hash[HASH_ASCII_SIZE] = 0;
-                DPRINTF(DEBUG_PROCESSES, "Hash %d: %s\n", i, hash);
+                DPRINTF(DEBUG_SOCKETS, "Hash %d: %s\n", i, hash);
             }
             break;
         case PKT_GET:
             binary2hex(pkt->payload, HASH_BINARY_SIZE, hash);
             hash[HASH_ASCII_SIZE] = 0;
-            DPRINTF(DEBUG_PROCESSES, "Hash: %s\n", hash);
+            DPRINTF(DEBUG_SOCKETS, "Hash: %s\n", hash);
             break;
         default:
             break;
@@ -780,7 +791,7 @@ void record_winsize(char *fn, int srv_id, int cli_id, uint32_t win_size)
 {
     FILE *fp = fopen(fn, "a");
     clock_t now = clock();
-    uint32_t t = (uint32_t)((now - program_start) / CLOCKS_PER_SEC * 1000);
-    fprintf(fp, "s%d->c%d\t%u\t%u\n", srv_id, cli_id, t, win_size);
+    uint32_t duration = now - program_start;
+    fprintf(fp, "s%d->c%d\t%u\t%u\n", srv_id, cli_id, duration, win_size);
     fclose(fp);
 }
